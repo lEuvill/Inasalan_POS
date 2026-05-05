@@ -7,33 +7,93 @@ echo  INASALAN POS - Setup
 echo ============================================================
 echo.
 
-:: ── Check Python ─────────────────────────────────────────────
+:: ── Helper: refresh PATH from registry after winget install ───
+:: Pulls the latest Machine + User PATH into the current session
+:refresh_path
+for /f "delims=" %%A in ('powershell -NoProfile -Command ^
+  "[Environment]::GetEnvironmentVariable('PATH','Machine')+';'+[Environment]::GetEnvironmentVariable('PATH','User')"') do set "PATH=%%A"
+goto :eof
+
+:: ── Check / Install Python ────────────────────────────────────
 echo [1/5] Checking Python...
 python --version >nul 2>&1
+if not errorlevel 1 goto python_ok
+
+echo  Python not found. Attempting install via winget...
+winget --version >nul 2>&1
 if errorlevel 1 (
-    echo  ERROR: Python is not installed or not in PATH.
-    echo  Download from https://www.python.org/downloads/
-    echo  Make sure to check "Add Python to PATH" during install.
+    echo.
+    echo  winget is not available on this machine.
+    echo  Please install Python manually from https://www.python.org/downloads/
+    echo  Make sure to check "Add Python to PATH" during install, then rerun setup.bat.
     pause
     exit /b 1
 )
+
+winget install --id Python.Python.3 --silent --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+    echo  winget install failed.
+    echo  Please install Python manually from https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+
+echo  Refreshing PATH...
+call :refresh_path
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo  Python was installed but this terminal does not see it yet.
+    echo  Please close this window and run setup.bat again.
+    pause
+    exit /b 1
+)
+
+:python_ok
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
 echo  Found Python %PYVER%
 
-:: ── Check Node.js ────────────────────────────────────────────
+:: ── Check / Install Node.js ───────────────────────────────────
 echo.
 echo [2/5] Checking Node.js...
 node --version >nul 2>&1
+if not errorlevel 1 goto node_ok
+
+echo  Node.js not found. Attempting install via winget...
+winget --version >nul 2>&1
 if errorlevel 1 (
-    echo  ERROR: Node.js is not installed or not in PATH.
-    echo  Download from https://nodejs.org/  (LTS version recommended)
+    echo.
+    echo  winget is not available on this machine.
+    echo  Please install Node.js manually from https://nodejs.org/ (LTS version).
+    echo  Then rerun setup.bat.
     pause
     exit /b 1
 )
+
+winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+    echo  winget install failed.
+    echo  Please install Node.js manually from https://nodejs.org/ (LTS version).
+    pause
+    exit /b 1
+)
+
+echo  Refreshing PATH...
+call :refresh_path
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo  Node.js was installed but this terminal does not see it yet.
+    echo  Please close this window and run setup.bat again.
+    pause
+    exit /b 1
+)
+
+:node_ok
 for /f %%v in ('node --version 2^>^&1') do set NODEVER=%%v
 echo  Found Node.js %NODEVER%
 
-:: ── Backend venv + dependencies ──────────────────────────────
+:: ── Backend venv + dependencies ───────────────────────────────
 echo.
 echo [3/5] Setting up Python backend...
 cd backend
@@ -76,7 +136,7 @@ if errorlevel 1 (
 
 cd ..
 
-:: ── Frontend npm dependencies ─────────────────────────────────
+:: ── Frontend npm dependencies ──────────────────────────────────
 echo.
 echo [4/5] Installing frontend dependencies...
 cd frontend
@@ -107,10 +167,10 @@ if errorlevel 1 (
 
 cd ..
 
-:: ── Done ─────────────────────────────────────────────────────
+:: ── Create superuser ──────────────────────────────────────────
 echo.
-echo [5/5] Creating Django superuser...
-echo  You will be prompted to set an admin username and password.
+echo [5/5] Creating Django admin user...
+echo  You will be prompted to set a username and password.
 echo  (Used to log in to http://localhost:8000/admin/)
 echo.
 cd backend
@@ -119,8 +179,7 @@ cd ..
 
 echo.
 echo ============================================================
-echo  Setup complete!
-echo  Run start.bat to launch the POS system.
+echo  Setup complete!  Run start.bat to launch the POS system.
 echo ============================================================
 echo.
 pause
