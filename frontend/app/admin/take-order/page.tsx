@@ -1,0 +1,630 @@
+'use client'
+
+import { useEffect, useState, useRef, useMemo } from 'react'
+import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
+import { VariationPicker } from '@/app/components/VariationPicker'
+
+type OrderStep = 'cart' | 'payment' | 'table'
+
+type LastPlaced = { slip: string; total: number; table: string }
+
+export default function TakeOrderPage() {
+  const [products, setProducts]       = useState<Product[]>([])
+  const [cart, setCart]               = useState<OrderItem[]>([])
+  const [activeCategory, setActiveCategory] = useState('')
+  const [placing, setPlacing]         = useState(false)
+  const [pendingEdit, setPendingEdit] = useState<{ idx: number; item: OrderItem; product: Product } | null>(null)
+  const [discountEdit, setDiscountEdit] = useState<{ idx: number; value: string } | null>(null)
+  const [slipNumber, setSlipNumber]   = useState('')
+  const [orderType, setOrderType]     = useState<OrderType>('DINE_IN')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
+  const [step, setStep]               = useState<OrderStep>('cart')
+  const [amountTendered, setAmountTendered] = useState('')
+  const [tableNumber, setTableNumber] = useState('')
+  const [tables, setTables]           = useState<Table[]>([])
+  const [lastPlaced, setLastPlaced]   = useState<LastPlaced | null>(null)
+  const [dfCustom, setDfCustom]       = useState<{ value: string } | null>(null)
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => { api.getMenu().then(setProducts) }, [])
+  useEffect(() => { api.getTables().then(ts => setTables(ts.filter(t => t.is_active))) }, [])
+
+  useEffect(() => {
+    const last = localStorage.getItem('pos_last_slip_number')
+    if (last) {
+      const n = parseInt(last, 10)
+      setSlipNumber(isNaN(n) ? '' : String(n + 1))
+    }
+  }, [])
+
+  const grouped = useMemo(() => {
+    const map: Record<string, Product[]> = {}
+    products.forEach(p => {
+      const cat = p.category || 'Uncategorized'
+      if (!map[cat]) map[cat] = []
+      map[cat].push(p)
+    })
+    return map
+  }, [products])
+
+  const categoryNames = useMemo(() => Object.keys(grouped), [grouped])
+
+  const dfProduct = useMemo(() =>
+    products.find(p => {
+      const n = p.name.toLowerCase()
+      return n.includes('delivery fee') || n === 'delivery fee'
+    }),
+  [products])
+
+  useEffect(() => {
+    if (categoryNames.length > 0 && !activeCategory) setActiveCategory(categoryNames[0])
+  }, [categoryNames, activeCategory])
+
+  useEffect(() => {
+    if (!dfProduct) return
+    if (orderType === 'DELIVERY') {
+      setCart(prev => {
+        if (prev.some(i => i.productId === dfProduct.id)) return prev
+        return [...prev, { productId: dfProduct.id, name: dfProduct.name, price: 30, quantity: 1, discount: 0 }]
+      })
+    } else {
+      setCart(prev => prev.filter(i => i.productId !== dfProduct.id))
+    }
+  }, [orderType, dfProduct])
+
+  const scrollToCategory = (cat: string) => {
+    setActiveCategory(cat)
+    sectionRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const pushToCart = (productId: number, name: string, price: number) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.name === name && !(i.discount ?? 0))
+      if (existing) return prev.map(i => (i.name === name && !(i.discount ?? 0)) ? { ...i, quantity: i.quantity + 1 } : i)
+      return [...prev, { productId, name, price, quantity: 1, discount: 0 }]
+    })
+  }
+
+  const updateQty = (idx: number, delta: number) => {
+    setCart(prev =>
+      prev.map((i, ii) => ii === idx ? { ...i, quantity: i.quantity + delta } : i)
+          .filter(i => i.quantity > 0)
+    )
+  }
+
+  const applyDiscount = (idx: number, pct: number) => {
+    setCart(prev => {
+      const item = prev[idx]
+      if (!item) return prev
+      const clamped = Math.min(100, Math.max(0, pct))
+      if (item.quantity <= 1 || clamped === 0) {
+        return prev.map((i, ii) => ii === idx ? { ...i, discount: clamped } : i)
+      }
+      const result = [...prev]
+      result.splice(idx, 1,
+        { ...item, quantity: item.quantity - 1 },
+        { ...item, quantity: 1, discount: clamped },
+      )
+      return result
+    })
+    setDiscountEdit(null)
+  }
+
+  const setDfPrice = (price: number) => {
+    if (!dfProduct) return
+    setCart(prev => prev.map(i => i.productId === dfProduct.id ? { ...i, price } : i))
+    setDfCustom(null)
+  }
+
+  const cartCountFor = (productId: number) =>
+    cart.filter(i => i.productId === productId).reduce((s, i) => s + i.quantity, 0)
+
+  const replaceVariation = (idx: number, newName: string, newPrice: number, productId: number, qty: number, discount: number) => {
+    setCart(prev => {
+      const item = prev[idx]
+      if (!item) return prev
+      const without = prev.filter((_, ii) => ii !== idx)
+      const existingIdx = without.findIndex(i => i.name === newName && (i.discount ?? 0) === discount)
+      if (existingIdx >= 0) {
+        return without.map((i, ii) => ii === existingIdx ? { ...i, quantity: i.quantity + qty } : i)
+      }
+      const result = [...without]
+      result.splice(Math.min(idx, result.length), 0, { productId, name: newName, price: newPrice, quantity: qty, discount })
+      return result
+    })
+  }
+
+  const total = cart.reduce((sum, i) => sum + i.price * (1 - (i.discount ?? 0) / 100) * i.quantity, 0)
+  const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0)
+
+  const quickAmounts = [...new Set([
+    total,
+    Math.ceil(total / 50) * 50,
+    Math.ceil(total / 100) * 100,
+    Math.ceil(total / 500) * 500,
+  ])].filter(v => v >= total)
+
+  const place = async (tbl: string) => {
+    if (cart.length === 0) return
+    setPlacing(true)
+    try {
+      const slip = slipNumber.trim()
+      await api.createOrder({
+        items_json: cart,
+        total: Math.round(total * 100) / 100,
+        source: 'walk-in',
+        order_type: orderType,
+        payment_method: paymentMethod,
+        ...(slip ? { slip_number: slip } : {}),
+        ...(tbl.trim() ? { table_number: tbl.trim() } : {}),
+      })
+      if (slip) localStorage.setItem('pos_last_slip_number', slip)
+
+      // Show success banner then auto-dismiss
+      const placed: LastPlaced = { slip: slip || '—', total: Math.round(total * 100) / 100, table: tbl.trim() }
+      setLastPlaced(placed)
+      if (bannerTimer.current) clearTimeout(bannerTimer.current)
+      bannerTimer.current = setTimeout(() => setLastPlaced(null), 4000)
+
+      // Reset for next order
+      setCart([])
+      setStep('cart')
+      setAmountTendered('')
+      setTableNumber('')
+      if (slip) {
+        const n = parseInt(slip, 10)
+        if (!isNaN(n)) setSlipNumber(String(n + 1))
+      }
+    } finally {
+      setPlacing(false)
+    }
+  }
+
+  return (
+    <>
+    {/* Full-page layout — negate the admin main p-8 padding */}
+    <div className="-m-8 h-screen flex flex-col overflow-hidden bg-gray-50">
+
+      {/* ── Success banner ── */}
+      {lastPlaced && (
+        <div className="shrink-0 bg-green-500 text-white px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">✓</span>
+            <div>
+              <p className="text-sm font-bold leading-tight">
+                Order placed{lastPlaced.slip !== '—' ? ` — Slip #${lastPlaced.slip}` : ''}
+                {lastPlaced.table ? ` · Table ${lastPlaced.table}` : ''}
+              </p>
+              <p className="text-xs text-green-100 leading-tight">₱{lastPlaced.total.toFixed(2)} · Ready for next order</p>
+            </div>
+          </div>
+          <button onClick={() => setLastPlaced(null)} className="text-green-200 hover:text-white text-lg leading-none">✕</button>
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <div className="bg-white border-b border-gray-100 shrink-0">
+        {/* Row 1: title + slip # */}
+        <div className="flex items-center gap-4 px-6 py-3">
+          <h1 className="text-base font-bold text-gray-800 shrink-0">Take Order</h1>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Slip #</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={slipNumber}
+              onChange={e => setSlipNumber(e.target.value)}
+              placeholder="e.g. 109850"
+              className="w-36 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:border-brand tracking-wide"
+            />
+          </div>
+        </div>
+
+        {/* Row 2: order type + payment method */}
+        <div className="flex items-center gap-6 px-6 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Type</span>
+            <div className="flex gap-1">
+              {([['DINE_IN','Dine In'],['TAKE_OUT','Take Out'],['DELIVERY','Delivery'],['PICK_UP','Pick Up']] as [OrderType,string][]).map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setOrderType(val)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors
+                    ${orderType === val ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Payment</span>
+            <div className="flex gap-1">
+              {([['CASH','Cash'],['GCASH','GCash']] as [PaymentMethod,string][]).map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setPaymentMethod(val)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors
+                    ${paymentMethod === val ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Category sidebar */}
+        <div className="w-40 bg-white border-r border-gray-100 overflow-y-auto shrink-0">
+          {categoryNames.map(cat => (
+            <button key={cat} onClick={() => scrollToCategory(cat)}
+              className={`w-full text-left px-4 py-3 border-b border-gray-50 transition-colors
+                ${activeCategory === cat
+                  ? 'bg-orange-50 border-l-2 border-l-brand text-brand font-semibold'
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}
+            >
+              <p className="text-sm leading-tight">{cat}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{grouped[cat].length} item{grouped[cat].length !== 1 ? 's' : ''}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Product grid */}
+        <div className="flex-1 overflow-y-auto">
+          {categoryNames.length === 0 && (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-400">No menu items available</p>
+            </div>
+          )}
+          {categoryNames.map(cat => (
+            <div key={cat} ref={el => { sectionRefs.current[cat] = el }} className="p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">{cat}</h3>
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-xs text-gray-300">{grouped[cat].length}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {grouped[cat].map(p => {
+                  const count = cartCountFor(p.id)
+                  const hasVariations = p.variations && p.variations.length > 0
+
+                  if (hasVariations) {
+                    return (
+                      <div key={p.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden relative
+                        ${count > 0 ? 'border-brand ring-1 ring-brand/20' : 'border-gray-100'}`}>
+                        <div className="w-full h-20 overflow-hidden bg-orange-50 flex items-center justify-center">
+                          {p.image_path
+                            // eslint-disable-next-line @next/next/no-img-element
+                            ? <img src={p.image_path} alt={p.name} className="w-full h-full object-cover" />
+                            : <span className="text-2xl">🍽️</span>}
+                        </div>
+                        <div className="px-2 pt-2 pb-1">
+                          <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
+                          {p.stock !== null && (
+                            <p className={`text-[10px] font-semibold mb-1 ${p.stock === 0 ? 'text-red-400' : p.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                              {p.stock === 0 ? 'Out of stock' : `${p.stock} left`}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap gap-1">
+                            {p.variations.map((v, vi) => {
+                              const varName = `${p.name} - ${v.name}`
+                              const inCart = cart.find(c => c.name === varName)
+                              return (
+                                <button key={vi} onClick={() => pushToCart(p.id, varName, parseFloat(v.price))}
+                                  className={`flex-1 rounded-lg py-1.5 px-1 text-center transition-all
+                                    ${inCart ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
+                                  <p className="text-xs font-semibold truncate leading-tight">{v.name}</p>
+                                  <p className={`text-[10px] leading-tight ${inCart ? 'text-white/80' : 'text-gray-400'}`}>₱{parseFloat(v.price).toFixed(2)}</p>
+                                  {inCart && <p className="text-xs font-bold leading-tight">×{inCart.quantity}</p>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        {count > 0 && (
+                          <span className="absolute top-2 right-2 bg-brand text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold shadow">{count}</span>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div key={p.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden relative
+                      ${count > 0 ? 'border-brand ring-1 ring-brand/20' : 'border-gray-100'}`}>
+                      <div className="w-full h-20 overflow-hidden bg-orange-50 flex items-center justify-center">
+                        {p.image_path
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={p.image_path} alt={p.name} className="w-full h-full object-cover" />
+                          : <span className="text-2xl">🍽️</span>}
+                      </div>
+                      <div className="px-2 pt-2 pb-2">
+                        <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
+                        {p.stock !== null && (
+                          <p className={`text-[10px] font-semibold mb-1 ${p.stock === 0 ? 'text-red-400' : p.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                            {p.stock === 0 ? 'Out of stock' : `${p.stock} left`}
+                          </p>
+                        )}
+                        <button type="button" onClick={() => pushToCart(p.id, p.name, parseFloat(p.price))}
+                          className={`w-full rounded-lg py-1.5 text-center text-xs font-semibold transition-all
+                            ${count > 0 ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
+                          ₱{parseFloat(p.price).toFixed(2)}
+                          {count > 0 && <span className="ml-1 font-bold">×{count}</span>}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Cart panel */}
+        <div className="w-72 bg-white border-l border-gray-100 flex flex-col shrink-0">
+          <div className="px-4 pt-4 pb-3 border-b border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+              Order{cartCount > 0 ? ` · ${cartCount} item${cartCount !== 1 ? 's' : ''}` : ''}
+            </p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+            {cart.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full pb-10 gap-2">
+                <p className="text-3xl">🛒</p>
+                <p className="text-gray-400 text-sm text-center">Tap items on the left to add them</p>
+              </div>
+            ) : cart.map((item, idx) => {
+              const parentProduct = products.find(p => p.id === item.productId)
+              const isVariation = parentProduct?.variations && parentProduct.variations.length > 0
+              const disc = item.discount ?? 0
+              const effectivePrice = item.price * (1 - disc / 100)
+              const isEditingDiscount = discountEdit?.idx === idx
+              const isDfItem = dfProduct != null && item.productId === dfProduct.id
+              const DF_PRESETS: [number, string][] = [[30, 'DF1'], [50, 'DF2'], [60, 'DF3']]
+              return (
+                <div key={idx} className="flex items-start gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate leading-tight">{item.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                      {isDfItem ? (
+                        <>
+                          <p className="text-xs text-gray-400">₱{item.price.toFixed(2)}</p>
+                          {DF_PRESETS.map(([p, label]) => (
+                            <button key={label} onClick={() => setDfPrice(p)}
+                              className={`text-xs font-semibold px-1.5 py-0.5 rounded transition-colors
+                                ${item.price === p ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-brand'}`}>
+                              {label}
+                            </button>
+                          ))}
+                          {dfCustom !== null ? (
+                            <form className="flex items-center gap-1"
+                              onSubmit={e => { e.preventDefault(); setDfPrice(parseFloat(dfCustom.value) || 30) }}>
+                              <input autoFocus type="number" min="0"
+                                value={dfCustom.value}
+                                onChange={e => setDfCustom({ value: e.target.value })}
+                                onBlur={() => { setDfPrice(parseFloat(dfCustom.value) || 30) }}
+                                className="w-14 border border-brand rounded px-1 py-0.5 text-xs text-center focus:outline-none"
+                                placeholder="0" />
+                            </form>
+                          ) : (
+                            <button onClick={() => setDfCustom({ value: String(item.price) })}
+                              className={`text-xs font-semibold px-1.5 py-0.5 rounded transition-colors
+                                ${![30, 50, 60].includes(item.price) ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-brand'}`}>
+                              {![30, 50, 60].includes(item.price) ? `₱${item.price}` : 'Custom'}
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {disc > 0 ? (
+                            <>
+                              <p className="text-xs text-gray-300 line-through">₱{item.price.toFixed(2)}</p>
+                              <p className="text-xs text-green-600 font-semibold">₱{effectivePrice.toFixed(2)}</p>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gray-400">₱{item.price.toFixed(2)}</p>
+                          )}
+                          {isEditingDiscount ? (
+                            <form className="flex items-center gap-1"
+                              onSubmit={e => { e.preventDefault(); applyDiscount(idx, parseFloat(discountEdit.value) || 0) }}>
+                              <input autoFocus type="number" min="0" max="100"
+                                value={discountEdit.value}
+                                onChange={e => setDiscountEdit({ idx, value: e.target.value })}
+                                onBlur={() => applyDiscount(idx, parseFloat(discountEdit.value) || 0)}
+                                className="w-12 border border-brand rounded px-1 py-0.5 text-xs text-center focus:outline-none"
+                                placeholder="0" />
+                              <span className="text-xs text-gray-400">%</span>
+                            </form>
+                          ) : (
+                            <button onClick={() => setDiscountEdit({ idx, value: disc > 0 ? String(disc) : '' })}
+                              className={`text-xs font-semibold hover:underline leading-none ${disc > 0 ? 'text-green-600' : 'text-gray-300 hover:text-brand'}`}>
+                              {disc > 0 ? `${disc}% off` : '%'}
+                            </button>
+                          )}
+                          {isVariation && !isEditingDiscount && (
+                            <button onClick={() => setPendingEdit({ idx, item, product: parentProduct! })}
+                              className="text-xs text-brand font-semibold hover:underline leading-none">change</button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => updateQty(idx, -1)}
+                        disabled={isDfItem && item.quantity <= 1}
+                        className="w-5 h-5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                      <span className="w-4 text-center text-xs font-bold text-gray-700">{item.quantity}</span>
+                      <button onClick={() => updateQty(idx, 1)}
+                        className="w-5 h-5 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-600">₱{(effectivePrice * item.quantity).toFixed(2)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="border-t border-gray-100 p-4 space-y-3 bg-gray-50">
+            <div className="flex justify-between items-baseline">
+              <span className="text-sm font-semibold text-gray-600">Total</span>
+              <span className="text-xl font-bold text-brand">₱{total.toFixed(2)}</span>
+            </div>
+            <button
+              onClick={() => { if (cart.length > 0) setStep('payment') }}
+              disabled={cart.length === 0}
+              className="w-full bg-brand text-white font-bold py-3 rounded-xl hover:bg-brand-dark transition-colors disabled:opacity-40"
+            >
+              Place Order
+            </button>
+            {cart.length > 0 && (
+              <button onClick={() => setCart([])} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1">
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ── Variation picker ── */}
+    {pendingEdit && (
+      <VariationPicker
+        productName={`Change: ${pendingEdit.product.name}`}
+        variations={pendingEdit.product.variations}
+        onSelect={(v: ProductVariation) => {
+          const newName = `${pendingEdit.product.name} - ${v.name}`
+          if (newName !== pendingEdit.item.name) {
+            replaceVariation(pendingEdit.idx, newName, parseFloat(v.price), pendingEdit.product.id, pendingEdit.item.quantity, pendingEdit.item.discount ?? 0)
+          }
+          setPendingEdit(null)
+        }}
+        onCancel={() => setPendingEdit(null)}
+      />
+    )}
+
+    {/* ── Payment step ── */}
+    {step === 'payment' && (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <h2 className="text-base font-bold text-gray-800">Payment</h2>
+            <button onClick={() => setStep('cart')} className="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-xl">✕</button>
+          </div>
+
+          <div className="px-6 py-6 text-center border-b border-gray-50 bg-gray-50">
+            <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Total Amount Due</p>
+            <p className="text-5xl font-black text-brand tracking-tight">₱{total.toFixed(2)}</p>
+            <p className="text-xs text-gray-400 mt-2 font-medium">
+              {paymentMethod === 'CASH' ? 'Cash' : 'GCash'} · {orderType.replace('_', ' ')}
+            </p>
+          </div>
+
+          {paymentMethod === 'CASH' ? (
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Amount Tendered</p>
+                <input type="number" inputMode="decimal" min="0"
+                  value={amountTendered} onChange={e => setAmountTendered(e.target.value)}
+                  placeholder="0.00" autoFocus
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-3xl font-bold text-center text-gray-800 focus:outline-none focus:border-brand" />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                {quickAmounts.map((amt, i) => (
+                  <button key={amt} onClick={() => setAmountTendered(amt.toFixed(2))}
+                    className={`py-2.5 rounded-xl text-xs font-bold transition-colors
+                      ${amountTendered === amt.toFixed(2) ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-50 hover:text-brand'}`}>
+                    {i === 0 ? 'Exact' : `₱${amt}`}
+                  </button>
+                ))}
+              </div>
+              {amountTendered !== '' && parseFloat(amountTendered) > 0 && (
+                parseFloat(amountTendered) >= total ? (
+                  <div className="bg-green-50 border border-green-100 rounded-xl px-5 py-4 flex justify-between items-center">
+                    <span className="text-sm font-bold text-green-700">Change</span>
+                    <span className="text-3xl font-black text-green-600">₱{(parseFloat(amountTendered) - total).toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-5 py-4 flex justify-between items-center">
+                    <span className="text-sm font-bold text-red-600">Short by</span>
+                    <span className="text-3xl font-black text-red-500">₱{(total - parseFloat(amountTendered)).toFixed(2)}</span>
+                  </div>
+                )
+              )}
+            </div>
+          ) : (
+            <div className="px-6 py-8 flex flex-col items-center gap-3">
+              <div className="w-16 h-16 bg-sky-100 rounded-2xl flex items-center justify-center">
+                <span className="text-2xl font-black text-sky-500">G</span>
+              </div>
+              <p className="text-sm text-gray-500 text-center">
+                Collect <span className="font-bold text-gray-800">₱{total.toFixed(2)}</span> via GCash before confirming.
+              </p>
+            </div>
+          )}
+
+          <div className="px-6 pb-6 flex gap-3">
+            <button onClick={() => setStep('cart')}
+              className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50">Back</button>
+            <button onClick={() => setStep('table')}
+              disabled={paymentMethod === 'CASH' && (amountTendered === '' || parseFloat(amountTendered) < total)}
+              className="flex-1 bg-brand text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-dark disabled:opacity-40 transition-colors">
+              Confirm Payment
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Table step ── */}
+    {step === 'table' && (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-base font-bold text-gray-800">Assign Table</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Select a table or skip</p>
+            </div>
+            <button onClick={() => setStep('payment')}
+              className="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-xl">✕</button>
+          </div>
+
+          <div className="px-5 py-4 max-h-80 overflow-y-auto">
+            {tables.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-400">No tables set up yet.</p>
+                <p className="text-xs text-gray-300 mt-1">Go to Tables in the sidebar to add presets.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                {tables.map(t => (
+                  <button key={t.id}
+                    onClick={() => setTableNumber(tableNumber === t.name ? '' : t.name)}
+                    className={`py-4 rounded-2xl text-sm font-bold transition-all border-2
+                      ${tableNumber === t.name
+                        ? 'bg-brand text-white border-brand shadow-md scale-[1.03]'
+                        : 'bg-gray-50 text-gray-700 border-transparent hover:border-brand/30 hover:bg-orange-50'}`}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {tableNumber && (
+            <div className="px-5 pb-2">
+              <p className="text-xs text-center text-brand font-semibold">Selected: {tableNumber}</p>
+            </div>
+          )}
+
+          <div className="px-5 pb-5 pt-2 flex gap-3">
+            <button onClick={() => { setTableNumber(''); place('') }} disabled={placing}
+              className="flex-1 border border-gray-200 text-gray-500 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50 disabled:opacity-40">Skip</button>
+            <button onClick={() => place(tableNumber)} disabled={placing || !tableNumber.trim()}
+              className="flex-1 bg-brand text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-dark disabled:opacity-40 transition-colors">
+              {placing ? 'Placing…' : 'Assign & Place'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
+  )
+}

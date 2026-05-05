@@ -1,13 +1,15 @@
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.db.models import F
+from django.db.models.functions import Greatest
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .models import Product, Order, Transaction
-from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer
+from .models import Product, Order, Transaction, Table
+from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer, TableSerializer
 
 _channel_layer = get_channel_layer()
 
@@ -44,6 +46,16 @@ class OrderViewSet(viewsets.ModelViewSet):
             qs = qs.exclude(status__in=[Order.Status.COMPLETED, Order.Status.VOIDED])
         return qs
 
+    def _deduct_stock(self, items_json):
+        for item in items_json:
+            product_id = item.get('productId')
+            quantity = item.get('quantity', 0)
+            if product_id and quantity > 0:
+                Product.objects.filter(
+                    id=product_id,
+                    stock__isnull=False,
+                ).update(stock=Greatest(F('stock') - quantity, 0))
+
     def perform_create(self, serializer):
         order = serializer.save()
         if order.status == Order.Status.COMPLETED:
@@ -58,6 +70,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 defaults={'total': order.total, 'completed_at': completed_at},
             )
         else:
+            self._deduct_stock(order.items_json)
             _broadcast('NEW_ORDER', OrderSerializer(order).data)
 
     def perform_update(self, serializer):
@@ -74,6 +87,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.select_related('order').all()
     serializer_class = TransactionSerializer
     http_method_names = ['get', 'patch', 'head', 'options']
+
+
+class TableViewSet(viewsets.ModelViewSet):
+    queryset = Table.objects.all()
+    serializer_class = TableSerializer
 
 
 # ── Sync endpoints ────────────────────────────────────────────────────────────

@@ -170,14 +170,20 @@ export default function MenuPage() {
             const hasVariations = product.variations && product.variations.length > 0
             const count = cartCountFor(product.id)
             const singleEntry = !hasVariations ? cart.find(i => i.productId === product.id) : null
+            const outOfStock = product.stock === 0
             return (
-              <div key={product.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="h-32 bg-orange-50 flex items-center justify-center overflow-hidden">
+              <div key={product.id} className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden ${outOfStock ? 'opacity-60' : ''}`}>
+                <div className="h-32 bg-orange-50 flex items-center justify-center overflow-hidden relative">
                   {product.image_path
                     // eslint-disable-next-line @next/next/no-img-element
                     ? <img src={product.image_path} alt={product.name} className="w-full h-full object-cover" />
                     : <span className="text-4xl">🍽️</span>
                   }
+                  {outOfStock && (
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                      <span className="bg-white text-gray-700 text-xs font-bold px-2 py-1 rounded-full">Out of stock</span>
+                    </div>
+                  )}
                 </div>
                 <div className="p-3">
                   <p className="font-semibold text-sm text-gray-800 line-clamp-1">{product.name}</p>
@@ -185,7 +191,16 @@ export default function MenuPage() {
                     ? <p className="text-xs text-gray-400 mt-0.5">{product.variations.length} options</p>
                     : <p className="text-brand font-bold text-sm mt-0.5">₱{parseFloat(product.price).toFixed(2)}</p>
                   }
-                  {!hasVariations && singleEntry ? (
+                  {product.stock !== null && !outOfStock && (
+                    <p className={`text-xs font-semibold mt-0.5 ${product.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                      {product.stock} left
+                    </p>
+                  )}
+                  {outOfStock ? (
+                    <div className="mt-2 w-full bg-gray-100 text-gray-400 text-xs font-semibold py-1.5 rounded-xl text-center">
+                      Unavailable
+                    </div>
+                  ) : !hasVariations && singleEntry ? (
                     <div className="flex items-center gap-2 mt-2">
                       <button
                         onClick={() => updateQty(singleEntry.name, -1)}

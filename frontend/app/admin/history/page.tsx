@@ -1,12 +1,24 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { api, Transaction, Order, Product, OrderItem } from '@/app/lib/api'
+import { api, Transaction, Product, OrderItem } from '@/app/lib/api'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-function exportTsv(transactions: Transaction[], products: Product[]) {
+export type ExportColumn = 'date' | 'slip' | 'product' | 'payment' | 'order_type'
+
+const EXPORT_COLUMN_LABELS: Record<ExportColumn, string> = {
+  date: 'Date',
+  slip: 'Slip #',
+  product: 'Product Name',
+  payment: 'Payment Method',
+  order_type: 'Order Type',
+}
+
+const DEFAULT_COLUMNS: ExportColumn[] = ['date', 'slip', 'product', 'payment', 'order_type']
+
+function exportTsv(transactions: Transaction[], products: Product[], columns: ExportColumn[]) {
   const productMap = new Map(products.map(p => [p.id, p]))
   const rows: string[] = []
 
@@ -17,6 +29,8 @@ function exportTsv(transactions: Transaction[], products: Product[]) {
     const yyyy = d.getFullYear()
     const dateStr = `${mm}/${dd}/${yyyy}`
     const orderNum = t.order_detail?.slip_number || String(t.order)
+    const payment = t.order_detail?.payment_method || ''
+    const orderType = (t.order_detail?.order_type || '').replace('_', ' ')
 
     for (const item of t.order_detail?.items_json ?? []) {
       const product = productMap.get(item.productId)
@@ -32,7 +46,13 @@ function exportTsv(transactions: Transaction[], products: Product[]) {
         }
       }
       for (let i = 0; i < item.quantity; i++) {
-        rows.push(`${dateStr}\t${orderNum}\t${outputName}`)
+        const cells: string[] = []
+        if (columns.includes('date')) cells.push(dateStr)
+        if (columns.includes('slip')) cells.push(orderNum)
+        if (columns.includes('product')) cells.push(outputName)
+        if (columns.includes('payment')) cells.push(payment)
+        if (columns.includes('order_type')) cells.push(orderType)
+        rows.push(cells.join('\t'))
       }
     }
   }
@@ -46,6 +66,90 @@ function exportTsv(transactions: Transaction[], products: Product[]) {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+// ── Export Column Picker Modal ─────────────────────────────────────────────────
+
+function ExportModal({
+  transactions,
+  products,
+  onClose,
+}: {
+  transactions: Transaction[]
+  products: Product[]
+  onClose: () => void
+}) {
+  const [selected, setSelected] = useState<Set<ExportColumn>>(new Set(DEFAULT_COLUMNS))
+
+  const toggle = (col: ExportColumn) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(col)) next.delete(col)
+      else next.add(col)
+      return next
+    })
+  }
+
+  const doExport = () => {
+    const ordered = (Object.keys(EXPORT_COLUMN_LABELS) as ExportColumn[]).filter(c => selected.has(c))
+    exportTsv(transactions, products, ordered)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 className="text-base font-bold text-gray-800">Export Columns</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">✕</button>
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          {(Object.entries(EXPORT_COLUMN_LABELS) as [ExportColumn, string][]).map(([col, label]) => (
+            <label key={col} className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={selected.has(col)}
+                onChange={() => toggle(col)}
+                className="w-4 h-4 accent-brand rounded"
+              />
+              <span className="text-sm text-gray-700">{label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2.5 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={doExport}
+            disabled={selected.size === 0}
+            className="flex-1 bg-brand text-white font-bold py-2.5 rounded-xl text-sm hover:bg-brand-dark disabled:opacity-40"
+          >
+            Export
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Payment badge ─────────────────────────────────────────────────────────────
+
+const PAYMENT_STYLE: Record<string, string> = {
+  CASH:  'bg-green-100 text-green-700',
+  GCASH: 'bg-sky-100 text-sky-700',
+}
+
+function PaymentBadge({ method }: { method: string }) {
+  if (!method) return <span className="text-gray-300 text-xs">—</span>
+  return (
+    <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${PAYMENT_STYLE[method] ?? 'bg-gray-100 text-gray-500'}`}>
+      {method}
+    </span>
+  )
 }
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
@@ -307,6 +411,7 @@ export default function HistoryPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [editOrderId, setEditOrderId] = useState<number | null>(null)
   const [showImport, setShowImport] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -347,7 +452,7 @@ export default function HistoryPage() {
             Import
           </button>
           <button
-            onClick={() => exportTsv(transactions, products)}
+            onClick={() => setShowExport(true)}
             disabled={transactions.length === 0}
             className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark text-sm transition-colors disabled:opacity-40"
           >
@@ -366,6 +471,7 @@ export default function HistoryPage() {
                 <th className="px-5 py-3 text-left">#</th>
                 <th className="px-5 py-3 text-left">Order</th>
                 <th className="px-5 py-3 text-left">Completed</th>
+                <th className="px-5 py-3 text-left">Payment</th>
                 <th className="px-5 py-3 text-right">Total</th>
                 <th className="px-5 py-3 text-right"></th>
               </tr>
@@ -382,6 +488,9 @@ export default function HistoryPage() {
                   </td>
                   <td className="px-5 py-4 text-gray-500">
                     {new Date(t.completed_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </td>
+                  <td className="px-5 py-4">
+                    <PaymentBadge method={t.order_detail?.payment_method || ''} />
                   </td>
                   <td className="px-5 py-4 text-right font-bold text-gray-800">
                     ₱{parseFloat(t.total).toFixed(2)}
@@ -441,6 +550,14 @@ export default function HistoryPage() {
         <ImportModal
           onClose={() => setShowImport(false)}
           onImported={load}
+        />
+      )}
+
+      {showExport && (
+        <ExportModal
+          transactions={transactions}
+          products={products}
+          onClose={() => setShowExport(false)}
         />
       )}
     </div>

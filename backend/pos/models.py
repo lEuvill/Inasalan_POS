@@ -14,6 +14,7 @@ class Product(models.Model):
     # Export mapping — used when generating sales export files
     output_name = models.CharField(max_length=255, blank=True)
     output_code = models.CharField(max_length=50, blank=True)
+    stock = models.IntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -49,6 +50,7 @@ class Order(models.Model):
     total = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     source = models.CharField(max_length=10, default='web')  # 'web' or 'android'
+    table_number = models.CharField(max_length=20, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -57,6 +59,17 @@ class Order(models.Model):
 
     def __str__(self):
         return f'Order #{self.pk} [{self.status}]'
+
+
+class Table(models.Model):
+    name = models.CharField(max_length=50)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
 
 
 class Transaction(models.Model):

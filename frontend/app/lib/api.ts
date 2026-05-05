@@ -16,6 +16,7 @@ export type Product = {
   is_available: boolean
   variations: ProductVariation[]
   output_name: string
+  stock: number | null
 }
 
 export type OrderItem = {
@@ -37,6 +38,7 @@ export type Order = {
   slip_number: string | null
   order_type: OrderType | ''
   payment_method: PaymentMethod | ''
+  table_number: string
   items_json: OrderItem[]
   total: string
   status: OrderStatus
@@ -54,8 +56,16 @@ export type Transaction = {
   order_detail: {
     id: number
     slip_number: string | null
+    order_type: OrderType | ''
+    payment_method: PaymentMethod | ''
     items_json: OrderItem[]
   }
+}
+
+export type Table = {
+  id: number
+  name: string
+  is_active: boolean
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -84,7 +94,7 @@ export const api = {
     request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
   getOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`),
-  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; status?: OrderStatus; completed_at?: string }) =>
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string }) =>
     request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
   deleteOrder: (id: number) =>
     request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
@@ -99,4 +109,13 @@ export const api = {
   getTransactions: () => request<Transaction[]>('/api/transactions/'),
   patchTransaction: (id: number, data: { total: number }) =>
     request<Transaction>(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Tables
+  getTables: () => request<Table[]>('/api/tables/'),
+  createTable: (data: { name: string; is_active?: boolean }) =>
+    request<Table>('/api/tables/', { method: 'POST', body: JSON.stringify(data) }),
+  updateTable: (id: number, data: Partial<Pick<Table, 'name' | 'is_active'>>) =>
+    request<Table>(`/api/tables/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTable: (id: number) =>
+    request<void>(`/api/tables/${id}/`, { method: 'DELETE' }),
 }
