@@ -21,8 +21,9 @@ const DEFAULT_COLUMNS: ExportColumn[] = ['date', 'slip', 'product', 'payment', '
 function exportTsv(transactions: Transaction[], products: Product[], columns: ExportColumn[]) {
   const productMap = new Map(products.map(p => [p.id, p]))
   const rows: string[] = []
+  const sorted = [...transactions].sort((a, b) => new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime())
 
-  for (const t of transactions) {
+  for (const t of sorted) {
     const d = new Date(t.completed_at)
     const mm = String(d.getMonth() + 1).padStart(2, '0')
     const dd = String(d.getDate()).padStart(2, '0')
@@ -34,7 +35,7 @@ function exportTsv(transactions: Transaction[], products: Product[], columns: Ex
 
     for (const item of t.order_detail?.items_json ?? []) {
       const product = productMap.get(item.productId)
-      let outputName = item.name
+      let outputName = item.output_name?.trim() || item.name
       if (product) {
         if (product.variations?.length > 0) {
           const prefix = product.name + ' - '
@@ -170,9 +171,22 @@ type ImportOrder = {
   items: ImportItem[]
 }
 
-function parseImport(raw: string, products: Product[]): ImportOrder[] {
+function parseImport(raw: string, products: Product[], dfOutputNames: Record<number, string> = {}): ImportOrder[] {
+  // Build reverse map from configured DF export names → { price }
+  const dfByName = new Map<string, number>()
+  for (const [price, name] of Object.entries(dfOutputNames)) {
+    if (name.trim()) dfByName.set(name.trim().toLowerCase(), Number(price))
+  }
+
   function findProduct(outputName: string) {
     const needle = outputName.trim().toLowerCase()
+
+    // Match against delivery fee export names configured in take-order settings
+    if (dfByName.has(needle)) {
+      const price = dfByName.get(needle)!
+      return { productId: -1, itemName: 'Delivery Fee', price, matched: true }
+    }
+
     for (const p of products) {
       for (const v of p.variations ?? []) {
         if ((v.output_name ?? '').trim().toLowerCase() === needle) {
@@ -244,26 +258,34 @@ function ImportModal({
   const [raw, setRaw] = useState('')
   const [preview, setPreview] = useState<ImportOrder[] | null>(null)
   const [importing, setImporting] = useState(false)
+  const [manualTotals, setManualTotals] = useState<Record<number, string>>({})
+  const [editingTotal, setEditingTotal] = useState<number | null>(null)
 
   useEffect(() => { api.getProducts().then(setProducts) }, [])
 
   const handlePreview = () => {
-    const parsed = parseImport(raw, products)
+    let dfOutputNames: Record<number, string> = {}
+    try { dfOutputNames = JSON.parse(localStorage.getItem('pos_df_output_names') ?? '{}') } catch { /* ignore */ }
+    const parsed = parseImport(raw, products, dfOutputNames)
     setPreview(parsed)
+    setManualTotals({})
+    setEditingTotal(null)
   }
 
   const doImport = async () => {
     if (!preview?.length) return
     setImporting(true)
     try {
-      for (const order of preview) {
+      for (let oi = 0; oi < preview.length; oi++) {
+        const order = preview[oi]
         const items_json: OrderItem[] = order.items.map(item => ({
           productId: item.productId,
           name: item.itemName,
           price: item.price,
           quantity: item.quantity,
         }))
-        const total = items_json.reduce((s, i) => s + i.price * i.quantity, 0)
+        const calcTotal = items_json.reduce((s, i) => s + i.price * i.quantity, 0)
+        const total = manualTotals[oi] !== undefined ? (parseFloat(manualTotals[oi]) || 0) : calcTotal
         await api.createOrder({
           items_json,
           total,
@@ -342,12 +364,14 @@ function ImportModal({
 
               {unmatchedCount > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-                  Unmatched items have no export name set in Menu. They will import at ₱0 — set their export name in Menu &gt; Edit, then re-import, or edit the transaction after importing.
+                  Unmatched items import at ₱0. Tap the order total to set the correct amount manually.
                 </div>
               )}
 
               {preview.map((order, oi) => {
-                const orderTotal = order.items.reduce((s, i) => s + i.price * i.quantity, 0)
+                const calcTotal = order.items.reduce((s, i) => s + i.price * i.quantity, 0)
+                const displayTotal = manualTotals[oi] !== undefined ? parseFloat(manualTotals[oi] || '0') : calcTotal
+                const isManual = manualTotals[oi] !== undefined
                 return (
                   <div key={oi} className="border border-gray-100 rounded-xl overflow-hidden">
                     <div className="bg-gray-50 px-4 py-2.5 flex items-center justify-between">
@@ -355,7 +379,34 @@ function ImportModal({
                         <span className="font-bold text-sm text-gray-800">Slip #{order.slipNumber}</span>
                         <span className="text-xs text-gray-400">{order.date}</span>
                       </div>
-                      <span className="text-sm font-bold text-brand">₱{orderTotal.toFixed(2)}</span>
+                      {editingTotal === oi ? (
+                        <form onSubmit={e => { e.preventDefault(); setEditingTotal(null) }} className="flex items-center gap-1">
+                          <span className="text-sm text-gray-400">₱</span>
+                          <input
+                            autoFocus
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={manualTotals[oi] ?? calcTotal.toFixed(2)}
+                            onChange={e => setManualTotals(prev => ({ ...prev, [oi]: e.target.value }))}
+                            onBlur={() => setEditingTotal(null)}
+                            className="w-24 border border-brand rounded-lg px-2 py-0.5 text-sm font-bold text-right text-brand focus:outline-none"
+                          />
+                        </form>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Click to edit total"
+                          onClick={() => {
+                            if (!(oi in manualTotals)) setManualTotals(prev => ({ ...prev, [oi]: calcTotal.toFixed(2) }))
+                            setEditingTotal(oi)
+                          }}
+                          className={`text-sm font-bold transition-colors ${isManual ? 'text-orange-500' : 'text-brand'} hover:opacity-70`}
+                        >
+                          ₱{displayTotal.toFixed(2)}
+                          <span className="ml-1 text-[10px] font-normal opacity-50">✎</span>
+                        </button>
+                      )}
                     </div>
                     <div className="divide-y divide-gray-50">
                       {order.items.map((item, ii) => (

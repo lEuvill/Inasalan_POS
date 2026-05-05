@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, Product, ProductVariation } from '@/app/lib/api'
 
-type ExportProduct = Omit<Product, 'id' | 'android_id'>
+type ExportProduct = Omit<Product, 'id' | 'android_id' | 'stock'>
 
 function exportMenu(products: Product[]) {
   const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, output_name }) => ({
@@ -97,6 +97,7 @@ const BLANK: Omit<Product, 'id' | 'android_id'> = {
   is_available: true,
   variations: [],
   output_name: '',
+  stock: null,
 }
 
 // ── Drag-and-drop image picker ────────────────────────────────────────────────
@@ -382,14 +383,14 @@ export default function MenuPage() {
       const { _action, _existingId, ...data } = e
       return _action === 'update' && _existingId != null
         ? api.updateProduct(_existingId, data)
-        : api.createProduct(data)
+        : api.createProduct({ ...data, stock: null })
     }))
     load()
   }
 
   const openCreate = () => { setForm(BLANK); setEditId(null); setShowForm(true) }
   const openEdit = (p: Product) => {
-    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], output_name: p.output_name ?? '' })
+    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], output_name: p.output_name ?? '', stock: p.stock ?? null })
     setEditId(p.id)
     setShowForm(true)
   }

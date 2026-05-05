@@ -24,7 +24,8 @@ export type OrderItem = {
   name: string
   price: number
   quantity: number
-  discount?: number  // percentage 0–100; absent/0 means no discount
+  discount?: number
+  output_name?: string
 }
 
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOIDED'

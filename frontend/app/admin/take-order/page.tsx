@@ -24,6 +24,11 @@ export default function TakeOrderPage() {
   const [tables, setTables]           = useState<Table[]>([])
   const [lastPlaced, setLastPlaced]   = useState<LastPlaced | null>(null)
   const [dfCustom, setDfCustom]       = useState<{ value: string } | null>(null)
+  const [dfOutputNames, setDfOutputNames] = useState<Record<number, string>>(() => {
+    if (typeof window === 'undefined') return {}
+    try { return JSON.parse(localStorage.getItem('pos_df_output_names') ?? '{}') } catch { return {} }
+  })
+  const [showDfConfig, setShowDfConfig] = useState(false)
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -57,21 +62,30 @@ export default function TakeOrderPage() {
     }),
   [products])
 
+  const dfId = dfProduct?.id ?? -1
+
   useEffect(() => {
     if (categoryNames.length > 0 && !activeCategory) setActiveCategory(categoryNames[0])
   }, [categoryNames, activeCategory])
 
   useEffect(() => {
-    if (!dfProduct) return
     if (orderType === 'DELIVERY') {
       setCart(prev => {
-        if (prev.some(i => i.productId === dfProduct.id)) return prev
-        return [...prev, { productId: dfProduct.id, name: dfProduct.name, price: 30, quantity: 1, discount: 0 }]
+        if (prev.some(i => i.productId === dfId)) return prev
+        const name = dfOutputNames[30]
+        return [...prev, {
+          productId: dfId,
+          name: dfProduct?.name ?? 'Delivery Fee',
+          price: 30,
+          quantity: 1,
+          discount: 0,
+          ...(name ? { output_name: name } : {}),
+        }]
       })
     } else {
-      setCart(prev => prev.filter(i => i.productId !== dfProduct.id))
+      setCart(prev => prev.filter(i => i.productId !== dfId))
     }
-  }, [orderType, dfProduct])
+  }, [orderType, dfId, dfProduct, dfOutputNames])
 
   const scrollToCategory = (cat: string) => {
     setActiveCategory(cat)
@@ -112,9 +126,26 @@ export default function TakeOrderPage() {
   }
 
   const setDfPrice = (price: number) => {
-    if (!dfProduct) return
-    setCart(prev => prev.map(i => i.productId === dfProduct.id ? { ...i, price } : i))
+    const outputName = dfOutputNames[price]
+    setCart(prev => prev.map(i =>
+      i.productId === dfId
+        ? { ...i, price, ...(outputName ? { output_name: outputName } : { output_name: undefined }) }
+        : i
+    ))
     setDfCustom(null)
+  }
+
+  const updateDfOutputName = (price: number, name: string) => {
+    setDfOutputNames(prev => {
+      const next = { ...prev, [price]: name }
+      localStorage.setItem('pos_df_output_names', JSON.stringify(next))
+      return next
+    })
+    setCart(prev => prev.map(i =>
+      i.productId === dfId && i.price === price
+        ? { ...i, ...(name ? { output_name: name } : { output_name: undefined }) }
+        : i
+    ))
   }
 
   const cartCountFor = (productId: number) =>
@@ -233,6 +264,14 @@ export default function TakeOrderPage() {
                 >{label}</button>
               ))}
             </div>
+            {orderType === 'DELIVERY' && (
+              <button type="button" onClick={() => setShowDfConfig(true)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Payment</span>
@@ -246,6 +285,7 @@ export default function TakeOrderPage() {
             </div>
           </div>
         </div>
+
       </div>
 
       {/* ── Body ── */}
@@ -376,7 +416,7 @@ export default function TakeOrderPage() {
               const disc = item.discount ?? 0
               const effectivePrice = item.price * (1 - disc / 100)
               const isEditingDiscount = discountEdit?.idx === idx
-              const isDfItem = dfProduct != null && item.productId === dfProduct.id
+              const isDfItem = item.productId === dfId
               const DF_PRESETS: [number, string][] = [[30, 'DF1'], [50, 'DF2'], [60, 'DF3']]
               return (
                 <div key={idx} className="flex items-start gap-2 py-1.5 border-b border-gray-50 last:border-0">
@@ -483,6 +523,39 @@ export default function TakeOrderPage() {
         </div>
       </div>
     </div>
+
+    {/* ── Delivery fee config modal ── */}
+    {showDfConfig && (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-xs">
+          <div className="px-5 pt-5 pb-3 border-b border-gray-100">
+            <h3 className="font-bold text-gray-800 text-base">Delivery Fee Export Names</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Set the export name for each fee tier</p>
+          </div>
+          <div className="px-5 py-4 space-y-3">
+            {([30, 50, 60] as const).map((price, i) => (
+              <div key={price} className="flex items-center gap-3">
+                <span className="text-xs font-bold text-gray-500 w-8">DF{i + 1}</span>
+                <span className="text-xs text-gray-400 w-10">₱{price}</span>
+                <input
+                  type="text"
+                  value={dfOutputNames[price] ?? ''}
+                  onChange={e => updateDfOutputName(price, e.target.value)}
+                  placeholder={`e.g. Delivery Fee ${i + 1}`}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-brand"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="px-5 pb-5">
+            <button onClick={() => setShowDfConfig(false)}
+              className="w-full bg-brand text-white rounded-xl py-2 text-sm font-semibold hover:bg-brand-dark transition-colors">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ── Variation picker ── */}
     {pendingEdit && (
