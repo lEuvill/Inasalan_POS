@@ -120,7 +120,7 @@ if errorlevel 1 (
 )
 
 echo  Collecting static files...
-call venv\Scripts\python.exe manage.py collectstatic --noinput --quiet
+call venv\Scripts\python.exe manage.py collectstatic --noinput --verbosity 0
 if errorlevel 1 (
     echo  ERROR: collectstatic failed.
     pause
