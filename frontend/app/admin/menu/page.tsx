@@ -3,6 +3,92 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, Product, ProductVariation } from '@/app/lib/api'
 
+type ExportProduct = Omit<Product, 'id' | 'android_id'>
+
+function exportMenu(products: Product[]) {
+  const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, output_name }) => ({
+    name, price, category, image_path, is_available, variations, output_name,
+  }))
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `menu_export_${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+type ImportEntry = ExportProduct & { _action: 'create' | 'update'; _existingId?: number }
+
+function ImportModal({
+  entries,
+  onConfirm,
+  onClose,
+}: {
+  entries: ImportEntry[]
+  onConfirm: () => Promise<void>
+  onClose: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [done, setDone] = useState(false)
+  const creates = entries.filter(e => e._action === 'create').length
+  const updates = entries.filter(e => e._action === 'update').length
+
+  const confirm = async () => {
+    setSaving(true)
+    try {
+      await onConfirm()
+      setDone(true)
+      setTimeout(onClose, 900)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col max-h-[80vh]">
+        <div className="px-5 pt-5 pb-3 border-b border-gray-100">
+          <h3 className="font-bold text-gray-800 text-base">Import Menu</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {creates > 0 && <span className="text-green-600 font-medium">{creates} new</span>}
+            {creates > 0 && updates > 0 && <span className="text-gray-400"> · </span>}
+            {updates > 0 && <span className="text-orange-500 font-medium">{updates} update</span>}
+            {creates > 0 || updates > 0 ? ' will be applied' : 'Nothing to import'}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1">
+          {entries.map((e, i) => (
+            <div key={i} className="flex items-center gap-3 py-1.5">
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${e._action === 'create' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                {e._action === 'create' ? 'NEW' : 'UPDATE'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{e.name}</p>
+                <p className="text-xs text-gray-400 truncate">{e.category || 'Uncategorized'}{e.variations.length > 0 ? ` · ${e.variations.length} variation${e.variations.length > 1 ? 's' : ''}` : ` · ₱${parseFloat(e.price).toFixed(2)}`}</p>
+              </div>
+            </div>
+          ))}
+          {entries.length === 0 && <p className="text-gray-400 text-sm text-center py-6">No valid products found in file</p>}
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">Cancel</button>
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={entries.length === 0 || saving || done}
+            className="flex-1 bg-brand text-white rounded-xl py-2 text-sm font-semibold hover:bg-brand-dark disabled:opacity-40 transition-colors"
+          >
+            {done ? 'Done!' : saving ? 'Importing…' : `Import ${entries.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const BLANK: Omit<Product, 'id' | 'android_id'> = {
   name: '',
   price: '0',
@@ -262,9 +348,44 @@ export default function MenuPage() {
   const [editId, setEditId] = useState<number | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [showCopyModal, setShowCopyModal] = useState(false)
+  const [importEntries, setImportEntries] = useState<ImportEntry[] | null>(null)
+  const importRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => { setProducts(await api.getProducts()) }, [])
   useEffect(() => { load() }, [load])
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const raw: ExportProduct[] = JSON.parse(ev.target?.result as string)
+        const entries: ImportEntry[] = raw.map(p => {
+          const existing = products.find(x => x.name.toLowerCase() === p.name.toLowerCase())
+          return existing
+            ? { ...p, _action: 'update', _existingId: existing.id }
+            : { ...p, _action: 'create' }
+        })
+        setImportEntries(entries)
+      } catch {
+        alert('Invalid file — could not parse JSON.')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const doImport = async () => {
+    if (!importEntries) return
+    await Promise.all(importEntries.map(e => {
+      const { _action, _existingId, ...data } = e
+      return _action === 'update' && _existingId != null
+        ? api.updateProduct(_existingId, data)
+        : api.createProduct(data)
+    }))
+    load()
+  }
 
   const openCreate = () => { setForm(BLANK); setEditId(null); setShowForm(true) }
   const openEdit = (p: Product) => {
@@ -302,9 +423,18 @@ export default function MenuPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Menu</h1>
-        <button onClick={openCreate} className="bg-brand text-white font-semibold px-5 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
-          + Add Item
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => exportMenu(products)} className="border border-gray-200 text-gray-600 font-semibold px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors text-sm">
+            Export
+          </button>
+          <button onClick={() => importRef.current?.click()} className="border border-gray-200 text-gray-600 font-semibold px-4 py-2 rounded-xl hover:bg-gray-50 transition-colors text-sm">
+            Import
+          </button>
+          <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={handleImportFile} />
+          <button onClick={openCreate} className="bg-brand text-white font-semibold px-5 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
+            + Add Item
+          </button>
+        </div>
       </div>
 
       {products.length === 0 && (
@@ -351,6 +481,14 @@ export default function MenuPage() {
           products={products}
           excludeId={editId}
           onClose={() => { setShowCopyModal(false); load() }}
+        />
+      )}
+
+      {importEntries !== null && (
+        <ImportModal
+          entries={importEntries}
+          onConfirm={doImport}
+          onClose={() => setImportEntries(null)}
         />
       )}
 
