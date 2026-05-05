@@ -7,13 +7,6 @@ echo  INASALAN POS - Setup
 echo ============================================================
 echo.
 
-:: ── Helper: refresh PATH from registry after winget install ───
-:: Pulls the latest Machine + User PATH into the current session
-:refresh_path
-for /f "delims=" %%A in ('powershell -NoProfile -Command ^
-  "[Environment]::GetEnvironmentVariable('PATH','Machine')+';'+[Environment]::GetEnvironmentVariable('PATH','User')"') do set "PATH=%%A"
-goto :eof
-
 :: ── Check / Install Python ────────────────────────────────────
 echo [1/5] Checking Python...
 python --version >nul 2>&1
@@ -183,3 +176,10 @@ echo  Setup complete!  Run start.bat to launch the POS system.
 echo ============================================================
 echo.
 pause
+goto :eof
+
+:: ── Helper: refresh PATH from registry after winget install ───
+:refresh_path
+for /f "delims=" %%A in ('powershell -NoProfile -Command ^
+  "[Environment]::GetEnvironmentVariable('PATH','Machine')+';'+[Environment]::GetEnvironmentVariable('PATH','User')"') do set "PATH=%%A"
+goto :eof
