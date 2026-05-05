@@ -12,12 +12,14 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   PREPARING: 'Your order is being prepared!',
   READY: 'Your order is ready for pickup!',
   COMPLETED: 'Order completed. Enjoy your meal!',
+  VOIDED: 'This order has been voided.',
 }
 const STATUS_COLOR: Record<OrderStatus, string> = {
   PENDING: 'bg-yellow-50 border-yellow-200 text-yellow-800',
   PREPARING: 'bg-orange-50 border-orange-200 text-orange-800',
   READY: 'bg-green-50 border-green-200 text-green-800',
   COMPLETED: 'bg-gray-50 border-gray-200 text-gray-600',
+  VOIDED: 'bg-gray-50 border-gray-200 text-gray-400',
 }
 
 type CartItem = OrderItem & { key: number }
