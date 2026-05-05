@@ -133,7 +133,7 @@ function TakeOrderModal({
     try {
       const order = await api.createOrder({
         items_json: cart,
-        total,
+        total: Math.round(total * 100) / 100,
         source: 'walk-in',
         order_type: orderType,
         payment_method: paymentMethod,

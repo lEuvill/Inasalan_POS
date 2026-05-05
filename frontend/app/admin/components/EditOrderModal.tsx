@@ -75,7 +75,7 @@ export function EditOrderModal({
     })
   }
 
-  const total = cart.reduce((sum, i) => sum + i.price * (1 - (i.discount ?? 0) / 100) * i.quantity, 0)
+  const total = Math.round(cart.reduce((sum, i) => sum + i.price * (1 - (i.discount ?? 0) / 100) * i.quantity, 0) * 100) / 100
 
   const save = async () => {
     if (!order) return
