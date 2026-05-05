@@ -17,6 +17,7 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   PREPARING: 'bg-orange-100 text-orange-700',
   READY: 'bg-green-100 text-green-700',
   COMPLETED: 'bg-gray-100 text-gray-500',
+  VOIDED: 'bg-gray-100 text-gray-400',
 }
 
 export default function OrdersPage() {
