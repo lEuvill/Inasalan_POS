@@ -31,8 +31,20 @@ class Order(models.Model):
         COMPLETED = 'COMPLETED'
         VOIDED = 'VOIDED'
 
+    class OrderType(models.TextChoices):
+        DINE_IN = 'DINE_IN', 'Dine In'
+        TAKE_OUT = 'TAKE_OUT', 'Take Out'
+        DELIVERY = 'DELIVERY', 'Delivery'
+        PICK_UP = 'PICK_UP', 'Pick Up'
+
+    class PaymentMethod(models.TextChoices):
+        CASH = 'CASH', 'Cash'
+        GCASH = 'GCASH', 'GCash'
+
     android_id = models.IntegerField(unique=True, null=True, blank=True)
     slip_number = models.CharField(max_length=20, blank=True, null=True)
+    order_type = models.CharField(max_length=20, choices=OrderType.choices, blank=True)
+    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices, blank=True)
     items_json = models.JSONField()
     total = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

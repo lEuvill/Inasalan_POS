@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { api, Order, Transaction, Product, OrderItem, OrderStatus, ProductVariation } from '@/app/lib/api'
+import { api, Order, Transaction, Product, OrderItem, OrderStatus, OrderType, PaymentMethod, ProductVariation } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
 import { VariationPicker } from '@/app/components/VariationPicker'
@@ -37,6 +37,8 @@ function TakeOrderModal({
   const [pendingEdit, setPendingEdit] = useState<{ idx: number; item: OrderItem; product: Product } | null>(null)
   const [discountEdit, setDiscountEdit] = useState<{ idx: number; value: string } | null>(null)
   const [slipNumber, setSlipNumber] = useState('')
+  const [orderType, setOrderType] = useState<OrderType>('DINE_IN')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
 
   useEffect(() => { api.getMenu().then(setProducts) }, [])
@@ -133,6 +135,8 @@ function TakeOrderModal({
         items_json: cart,
         total,
         source: 'walk-in',
+        order_type: orderType,
+        payment_method: paymentMethod,
         ...(slipNumber.trim() ? { slip_number: slipNumber.trim() } : {}),
       })
       if (slipNumber.trim()) localStorage.setItem('pos_last_slip_number', slipNumber.trim())
@@ -149,20 +153,59 @@ function TakeOrderModal({
       <div className="bg-gray-50 rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden">
 
         {/* Header */}
-        <div className="bg-white flex items-center justify-between px-6 py-3 border-b border-gray-100 shrink-0 gap-4">
-          <h2 className="text-lg font-bold text-gray-800 shrink-0">Take Order</h2>
-          <div className="flex items-center gap-2 flex-1 max-w-xs">
-            <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Slip #</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={slipNumber}
-              onChange={e => setSlipNumber(e.target.value)}
-              placeholder="e.g. 109850"
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:border-brand tracking-wide"
-            />
+        <div className="bg-white border-b border-gray-100 shrink-0">
+          {/* Row 1: title, slip #, close */}
+          <div className="flex items-center justify-between px-6 py-3 gap-4">
+            <h2 className="text-lg font-bold text-gray-800 shrink-0">Take Order</h2>
+            <div className="flex items-center gap-2 flex-1 max-w-xs">
+              <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Slip #</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={slipNumber}
+                onChange={e => setSlipNumber(e.target.value)}
+                placeholder="e.g. 109850"
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:border-brand tracking-wide"
+              />
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 shrink-0">✕</button>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 shrink-0">✕</button>
+
+          {/* Row 2: order type + payment method */}
+          <div className="flex items-center gap-6 px-6 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Type</span>
+              <div className="flex gap-1">
+                {([['DINE_IN','Dine In'],['TAKE_OUT','Take Out'],['DELIVERY','Delivery'],['PICK_UP','Pick Up']] as [OrderType,string][]).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setOrderType(val)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors
+                      ${orderType === val ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Payment</span>
+              <div className="flex gap-1">
+                {([['CASH','Cash'],['GCASH','GCash']] as [PaymentMethod,string][]).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPaymentMethod(val)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors
+                      ${paymentMethod === val ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -543,6 +586,20 @@ export default function DashboardPage() {
     'android': 'Android',
   }
 
+  const ORDER_TYPE_STYLE: Record<string, string> = {
+    DINE_IN:  'bg-gray-100 text-gray-600',
+    TAKE_OUT: 'bg-blue-100 text-blue-700',
+    DELIVERY: 'bg-purple-100 text-purple-700',
+    PICK_UP:  'bg-orange-100 text-orange-700',
+  }
+  const ORDER_TYPE_LABEL: Record<string, string> = {
+    DINE_IN: 'Dine In', TAKE_OUT: 'Take Out', DELIVERY: 'Delivery', PICK_UP: 'Pick Up',
+  }
+  const PAYMENT_STYLE: Record<string, string> = {
+    CASH:  'bg-green-100 text-green-700',
+    GCASH: 'bg-sky-100 text-sky-700',
+  }
+
   return (
     <div>
       {/* Header */}
@@ -579,21 +636,35 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {activeOrders.map(order => (
             <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-              <div className="flex justify-between items-center mb-3">
+              <div className="flex justify-between items-start mb-3">
                 <div>
-                  {order.slip_number ? (
-                    <>
-                      <span className="font-bold text-base text-gray-800">Slip #{order.slip_number}</span>
-                      <span className="ml-2 text-xs text-gray-400">#{order.id}</span>
-                    </>
-                  ) : (
-                    <span className="font-semibold text-sm text-gray-800">Order #{order.id}</span>
-                  )}
-                  <span className="ml-2 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                    {SOURCE_LABEL[order.source] ?? order.source}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {order.slip_number ? (
+                      <>
+                        <span className="font-bold text-base text-gray-800">Slip #{order.slip_number}</span>
+                        <span className="text-xs text-gray-400">#{order.id}</span>
+                      </>
+                    ) : (
+                      <span className="font-semibold text-sm text-gray-800">Order #{order.id}</span>
+                    )}
+                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                      {SOURCE_LABEL[order.source] ?? order.source}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    {order.order_type && (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ORDER_TYPE_STYLE[order.order_type] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {ORDER_TYPE_LABEL[order.order_type] ?? order.order_type}
+                      </span>
+                    )}
+                    {order.payment_method && (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${PAYMENT_STYLE[order.payment_method] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {order.payment_method === 'GCASH' ? 'GCash' : order.payment_method}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLOR[order.status]}`}>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLOR[order.status]}`}>
                   {order.status}
                 </span>
               </div>

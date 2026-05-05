@@ -28,10 +28,15 @@ export type OrderItem = {
 
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOIDED'
 
+export type OrderType = 'DINE_IN' | 'TAKE_OUT' | 'DELIVERY' | 'PICK_UP'
+export type PaymentMethod = 'CASH' | 'GCASH'
+
 export type Order = {
   id: number
   android_id: number | null
   slip_number: string | null
+  order_type: OrderType | ''
+  payment_method: PaymentMethod | ''
   items_json: OrderItem[]
   total: string
   status: OrderStatus
@@ -79,7 +84,7 @@ export const api = {
     request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
   getOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`),
-  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; status?: OrderStatus; completed_at?: string }) =>
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; status?: OrderStatus; completed_at?: string }) =>
     request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
   deleteOrder: (id: number) =>
     request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
