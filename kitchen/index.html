@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kitchen Display — INASALAN</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #030712;
+      color: #f9fafb;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: #111827;
+      border-bottom: 1px solid #1f2937;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .logo { color: #F5A623; font-size: 1.2rem; font-weight: 900; letter-spacing: -0.5px; }
+    .logo-sub { color: #6b7280; font-size: 0.75rem; margin-left: 10px; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    #ws-indicator { display: flex; align-items: center; gap: 6px; }
+    #ws-dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
+    #ws-dot.live { background: #22c55e; }
+    #ws-dot.dead { background: #ef4444; }
+    #ws-label { font-size: 0.7rem; color: #6b7280; }
+    #ws-label.live { color: #4ade80; }
+    #ws-label.dead { color: #f87171; }
+    #clock { font-size: 0.8rem; font-family: monospace; color: #9ca3af; }
+
+    /* Sections */
+    .section { padding: 20px 24px 8px; }
+    .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .section-title {
+      font-size: 0.65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em; color: #6b7280;
+    }
+    .count-badge {
+      background: #F5A623; color: #000;
+      font-size: 0.65rem; font-weight: 700;
+      padding: 2px 8px; border-radius: 999px;
+    }
+
+    /* Active orders grid */
+    #active-orders {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px;
+    }
+    .empty-msg { color: #374151; font-size: 0.85rem; text-align: center; padding: 32px 0; grid-column: 1/-1; }
+
+    /* Order card */
+    .order-card {
+      border-radius: 16px;
+      border: 1px solid;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .order-card.status-PENDING   { background: rgba(127,29,29,0.35);  border-color: #b91c1c; }
+    .order-card.status-PREPARING { background: rgba(120,53,15,0.35);  border-color: #d97706; }
+    .order-card.status-READY     { background: rgba(20,83,45,0.35);   border-color: #16a34a; }
+    @keyframes flash { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .order-card.new-flash { animation: flash 0.5s ease 3; }
+
+    .card-top { display: flex; justify-content: space-between; align-items: center; }
+    .order-num { font-size: 1.3rem; font-weight: 900; color: #f9fafb; }
+    .status-badge {
+      font-size: 0.6rem; font-weight: 700;
+      padding: 3px 8px; border-radius: 999px; text-transform: uppercase;
+    }
+    .badge-PENDING   { background: #ef4444; color: #fff; }
+    .badge-PREPARING { background: #f59e0b; color: #fff; }
+    .badge-READY     { background: #22c55e; color: #000; }
+
+    .source-label { font-size: 0.65rem; color: #9ca3af; }
+
+    .items-list {
+      list-style: none;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 8px;
+      margin-top: 2px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .item-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
+    .item-name { color: #e5e7eb; font-weight: 500; }
+    .item-qty  { color: #F5A623; font-weight: 700; }
+
+    .card-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 8px; margin-top: 2px;
+    }
+    .elapsed    { font-size: 0.7rem; color: #6b7280; }
+    .card-total { font-size: 0.85rem; font-weight: 700; color: #d1d5db; }
+
+    /* Action buttons */
+    .action-btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: opacity 0.15s, transform 0.1s;
+      margin-top: 4px;
+    }
+    .action-btn:active { transform: scale(0.97); }
+    .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-start  { background: #f59e0b; color: #000; }
+    .btn-ready  { background: #22c55e; color: #000; }
+    .btn-served { background: #374151; color: #9ca3af; }
+    .btn-served:disabled { opacity: 1; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid #1f2937; margin: 4px 24px; }
+
+    /* History */
+    .history-section { padding: 16px 24px 24px; flex: 1; overflow-y: auto; }
+    #history-list { display: flex; flex-direction: column; gap: 6px; }
+    .history-row {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #111827; border-radius: 10px; padding: 10px 16px;
+    }
+    .history-left { display: flex; align-items: center; gap: 16px; }
+    .history-order { font-size: 0.85rem; color: #9ca3af; font-family: monospace; }
+    .history-time  { font-size: 0.75rem; color: #4b5563; }
+    .history-total { font-size: 0.85rem; font-weight: 600; color: #4ade80; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <span class="logo">INASALAN</span>
+      <span class="logo-sub">Kitchen Display</span>
+    </div>
+    <div class="header-right">
+      <div id="ws-indicator">
+        <span id="ws-dot"></span>
+        <span id="ws-label">Connecting…</span>
+      </div>
+      <span id="clock"></span>
+    </div>
+  </header>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Active Orders</span>
+      <span class="count-badge" id="active-count">0</span>
+    </div>
+    <div id="active-orders">
+      <p class="empty-msg" id="active-empty">No active orders</p>
+    </div>
+  </div>
+
+  <hr />
+
+  <div class="history-section">
+    <div class="section-header">
+      <span class="section-title">Completed Today</span>
+    </div>
+    <div id="history-list">
+      <p class="empty-msg" id="history-empty">No completed orders today</p>
+    </div>
+  </div>
+
+  <script>
+    var DJANGO_HOST = location.hostname;
+    var API = 'http://' + DJANGO_HOST + ':8000';
+    var WS  = 'ws://'  + DJANGO_HOST + ':8000/ws/pos/';
+
+    var activeOrders   = [];
+    var completedToday = [];
+
+    // ── Clock ──────────────────────────────────────────────────────────────────
+    function updateClock() {
+      document.getElementById('clock').textContent =
+        new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // ── WS status ──────────────────────────────────────────────────────────────
+    function setWsStatus(live) {
+      var dot   = document.getElementById('ws-dot');
+      var label = document.getElementById('ws-label');
+      dot.className   = live ? 'live' : 'dead';
+      label.className = live ? 'live' : 'dead';
+      label.textContent = live ? 'Live' : 'Reconnecting…';
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    function elapsed(createdAt) {
+      var diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+      if (diff < 60)   return diff + 's ago';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (diff % 60) + 's ago';
+      return Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'm ago';
+    }
+
+    function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+    var SOURCE_LABEL = { 'walk-in': 'Walk-in', 'web': 'Web', 'android': 'Android' };
+
+    // ── Advance order status ───────────────────────────────────────────────────
+    function advanceStatus(orderId, nextStatus, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Updating…';
+
+      fetch(API + '/api/orders/' + orderId + '/', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus })
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error(r.status);
+        // WS broadcast will handle the UI update automatically
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+      });
+    }
+
+    // ── Render active orders ───────────────────────────────────────────────────
+    function renderActive() {
+      var container = document.getElementById('active-orders');
+      var empty     = document.getElementById('active-empty');
+      document.getElementById('active-count').textContent = activeOrders.length;
+
+      var old = container.querySelectorAll('.order-card');
+      for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+
+      if (activeOrders.length === 0) { empty.style.display = ''; return; }
+      empty.style.display = 'none';
+
+      // Oldest first
+      var sorted = activeOrders.slice().sort(function(a, b) {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+
+      for (var j = 0; j < sorted.length; j++) {
+        var order = sorted[j];
+
+        // Items HTML
+        var itemsHtml = '';
+        var items = order.items_json || [];
+        for (var k = 0; k < items.length; k++) {
+          itemsHtml +=
+            '<li class="item-row">' +
+              '<span class="item-name">' + items[k].name + '</span>' +
+              '<span class="item-qty">&times;' + items[k].quantity + '</span>' +
+            '</li>';
+        }
+
+        // Action button HTML
+        var btnHtml = '';
+        if (order.status === 'PENDING') {
+          btnHtml = '<button class="action-btn btn-start" onclick="advanceStatus(' + order.id + ', \'PREPARING\', this)">Start Preparing</button>';
+        } else if (order.status === 'PREPARING') {
+          btnHtml = '<button class="action-btn btn-ready" onclick="advanceStatus(' + order.id + ', \'READY\', this)">Mark Ready</button>';
+        } else if (order.status === 'READY') {
+          btnHtml = '<button class="action-btn btn-served" disabled>Waiting for pickup…</button>';
+        }
+
+        var card = document.createElement('div');
+        card.id        = 'order-' + order.id;
+        card.className = 'order-card status-' + order.status;
+        card.innerHTML =
+          '<div class="card-top">' +
+            '<span class="order-num">#' + order.id + '</span>' +
+            '<span class="status-badge badge-' + order.status + '">' + order.status + '</span>' +
+          '</div>' +
+          '<div class="source-label">' + (SOURCE_LABEL[order.source] || order.source) + '</div>' +
+          '<ul class="items-list">' + itemsHtml + '</ul>' +
+          '<div class="card-footer">' +
+            '<span class="elapsed" id="elapsed-' + order.id + '">' + elapsed(order.created_at) + '</span>' +
+            '<span class="card-total">&#8369;' + parseFloat(order.total).toFixed(2) + '</span>' +
+          '</div>' +
+          btnHtml;
+
+        container.appendChild(card);
+      }
+    }
+
+    setInterval(function() {
+      for (var i = 0; i < activeOrders.length; i++) {
+        var el = document.getElementById('elapsed-' + activeOrders[i].id);
+        if (el) el.textContent = elapsed(activeOrders[i].created_at);
+      }
+    }, 10000);
+
+    // ── Render history ─────────────────────────────────────────────────────────
+    function renderHistory() {
+      var container = document.getElementById('history-list');
+      var empty     = document.getElementById('history-empty');
+      var today     = todayStr();
+
+      var old = container.querySelectorAll('.history-row');
+      for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+
+      var todayTxns = [];
+      for (var j = 0; j < completedToday.length; j++) {
+        if (completedToday[j].completed_at.slice(0, 10) === today) todayTxns.push(completedToday[j]);
+      }
+
+      if (todayTxns.length === 0) { empty.style.display = ''; return; }
+      empty.style.display = 'none';
+
+      for (var k = todayTxns.length - 1; k >= 0; k--) {
+        var t = todayTxns[k];
+        var timeStr = new Date(t.completed_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+        var row = document.createElement('div');
+        row.className = 'history-row';
+        row.innerHTML =
+          '<div class="history-left">' +
+            '<span class="history-order">Order #' + t.order + '</span>' +
+            '<span class="history-time">' + timeStr + '</span>' +
+          '</div>' +
+          '<span class="history-total">&#8369;' + parseFloat(t.total).toFixed(2) + '</span>';
+        container.appendChild(row);
+      }
+    }
+
+    // ── Fetch initial data ─────────────────────────────────────────────────────
+    function loadData() {
+      fetch(API + '/api/orders/?status=active')
+        .then(function(r) { return r.json(); })
+        .then(function(orders) { activeOrders = orders; renderActive(); })
+        .catch(function(e) { console.error('Orders fetch failed:', e); });
+
+      fetch(API + '/api/transactions/')
+        .then(function(r) { return r.json(); })
+        .then(function(txns) { completedToday = txns; renderHistory(); })
+        .catch(function(e) { console.error('Transactions fetch failed:', e); });
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────────────
+    function connectWs() {
+      var ws = new WebSocket(WS);
+
+      ws.onopen  = function() { setWsStatus(true); };
+      ws.onclose = function() { setWsStatus(false); setTimeout(connectWs, 3000); };
+
+      ws.onmessage = function(e) {
+        var msg = JSON.parse(e.data);
+
+        if (msg.type === 'NEW_ORDER') {
+          var exists = false;
+          for (var i = 0; i < activeOrders.length; i++) {
+            if (activeOrders[i].id === msg.id) { exists = true; break; }
+          }
+          if (!exists) {
+            activeOrders.push(msg);
+            renderActive();
+            var card = document.getElementById('order-' + msg.id);
+            if (card) card.classList.add('new-flash');
+          }
+
+        } else if (msg.type === 'ORDER_STATUS_UPDATE') {
+          if (msg.status === 'COMPLETED') {
+            var next = [];
+            for (var j = 0; j < activeOrders.length; j++) {
+              if (activeOrders[j].id !== msg.id) next.push(activeOrders[j]);
+            }
+            activeOrders = next;
+            renderActive();
+            loadData(); // refresh history
+          } else {
+            for (var k = 0; k < activeOrders.length; k++) {
+              if (activeOrders[k].id === msg.id) {
+                activeOrders[k] = Object.assign({}, activeOrders[k], msg);
+                break;
+              }
+            }
+            renderActive();
+          }
+        }
+      };
+    }
+
+    // ── Boot ───────────────────────────────────────────────────────────────────
+    loadData();
+    connectWs();
+  </script>
+</body>
+</html>

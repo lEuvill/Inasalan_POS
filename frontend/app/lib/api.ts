@@ -1,0 +1,97 @@
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+
+export type ProductVariation = {
+  name: string
+  price: string
+  output_name?: string
+}
+
+export type Product = {
+  id: number
+  android_id: number | null
+  name: string
+  price: string
+  category: string
+  image_path: string
+  is_available: boolean
+  variations: ProductVariation[]
+  output_name: string
+}
+
+export type OrderItem = {
+  productId: number
+  name: string
+  price: number
+  quantity: number
+  discount?: number  // percentage 0–100; absent/0 means no discount
+}
+
+export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOIDED'
+
+export type Order = {
+  id: number
+  android_id: number | null
+  slip_number: string | null
+  items_json: OrderItem[]
+  total: string
+  status: OrderStatus
+  source: string
+  created_at: string
+  transaction?: Transaction
+}
+
+export type Transaction = {
+  id: number
+  order: number
+  android_id: number | null
+  total: string
+  completed_at: string
+  order_detail: {
+    id: number
+    slip_number: string | null
+    items_json: OrderItem[]
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+export const api = {
+  // Products
+  getMenu: () => request<Product[]>('/api/products/?available=true'),
+  getProducts: () => request<Product[]>('/api/products/'),
+  createProduct: (data: Omit<Product, 'id' | 'android_id'>) =>
+    request<Product>('/api/products/', { method: 'POST', body: JSON.stringify(data) }),
+  updateProduct: (id: number, data: Partial<Product>) =>
+    request<Product>(`/api/products/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProduct: (id: number) =>
+    request<void>(`/api/products/${id}/`, { method: 'DELETE' }),
+
+  // Orders
+  getOrders: (activeOnly = false) =>
+    request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
+  getOrder: (id: number) =>
+    request<Order>(`/api/orders/${id}/`),
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; status?: OrderStatus; completed_at?: string }) =>
+    request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
+  deleteOrder: (id: number) =>
+    request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
+  updateOrderStatus: (id: number, status: OrderStatus) =>
+    request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  voidOrder: (id: number) =>
+    request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status: 'VOIDED' }) }),
+  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number }) =>
+    request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Transactions
+  getTransactions: () => request<Transaction[]>('/api/transactions/'),
+  patchTransaction: (id: number, data: { total: number }) =>
+    request<Transaction>(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+}

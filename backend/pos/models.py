@@ -1,0 +1,60 @@
+from django.db import models
+
+
+class Product(models.Model):
+    # android_id links this record to the Room DB row on the Android device
+    android_id = models.IntegerField(unique=True, null=True, blank=True)
+    name = models.CharField(max_length=255)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    category = models.CharField(max_length=100, blank=True)
+    image_path = models.TextField(blank=True)
+    is_available = models.BooleanField(default=True)
+    # e.g. [{"name": "Meal", "price": "120.00"}, {"name": "Solo", "price": "90.00"}]
+    variations = models.JSONField(default=list, blank=True)
+    # Export mapping — used when generating sales export files
+    output_name = models.CharField(max_length=255, blank=True)
+    output_code = models.CharField(max_length=50, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class Order(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'PENDING'
+        PREPARING = 'PREPARING'
+        READY = 'READY'
+        COMPLETED = 'COMPLETED'
+        VOIDED = 'VOIDED'
+
+    android_id = models.IntegerField(unique=True, null=True, blank=True)
+    slip_number = models.CharField(max_length=20, blank=True, null=True)
+    items_json = models.JSONField()
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    source = models.CharField(max_length=10, default='web')  # 'web' or 'android'
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Order #{self.pk} [{self.status}]'
+
+
+class Transaction(models.Model):
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='transaction')
+    android_id = models.IntegerField(unique=True, null=True, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+    completed_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['-completed_at']
+
+    def __str__(self):
+        return f'Transaction #{self.pk} for Order #{self.order_id}'
