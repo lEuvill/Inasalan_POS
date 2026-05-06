@@ -249,9 +249,10 @@ function RawStockRow({
   )
 }
 
-function RawStockTab() {
+function RawStockTab({ onStockChange }: { onStockChange: (updatedMaterials: RawMaterial[]) => void }) {
   const [materials, setMaterials] = useState<RawMaterial[]>([])
   const [loading, setLoading]     = useState(true)
+  const [syncing, setSyncing]     = useState(false)
 
   const load = useCallback(async () => {
     setMaterials(await api.getRawMaterials())
@@ -261,7 +262,12 @@ function RawStockTab() {
   useEffect(() => { load() }, [load])
 
   const handleSaved = (id: number, stock_qty: string) => {
-    setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock_qty } : m))
+    const updated = materials.map(m => m.id === id ? { ...m, stock_qty } : m)
+    setMaterials(updated)
+    setSyncing(true)
+    onStockChange(updated)
+    // syncing badge cleared by parent when done — we use a short local timeout as fallback
+    setTimeout(() => setSyncing(false), 2000)
   }
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
@@ -279,15 +285,23 @@ function RawStockTab() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{stocked}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Stocked</p>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 grid grid-cols-2 gap-3">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+            <p className="text-2xl font-bold text-gray-800">{stocked}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Stocked</p>
+          </div>
+          <div className={`rounded-2xl border shadow-sm p-4 text-center ${noStock > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
+            <p className={`text-2xl font-bold ${noStock > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{noStock}</p>
+            <p className={`text-xs mt-0.5 ${noStock > 0 ? 'text-amber-500' : 'text-gray-400'}`}>No Stock Set</p>
+          </div>
         </div>
-        <div className={`rounded-2xl border shadow-sm p-4 text-center ${noStock > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
-          <p className={`text-2xl font-bold ${noStock > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{noStock}</p>
-          <p className={`text-xs mt-0.5 ${noStock > 0 ? 'text-amber-500' : 'text-gray-400'}`}>No Stock Set</p>
-        </div>
+        {syncing && (
+          <div className="shrink-0 flex items-center gap-2 text-xs text-brand font-medium bg-orange-50 border border-orange-100 rounded-xl px-3 py-2">
+            <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
+            Updating Stock tab…
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1008,6 +1022,51 @@ export default function InventoryPage() {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock } : p))
   }
 
+  // Called by RawStockTab whenever an ingredient stock changes.
+  // Fetches fresh recipe links, recalculates the bottleneck yield for every
+  // product that has ingredients configured, then patches product.stock.
+  const recalcProductStocks = useCallback(async (updatedMaterials: RawMaterial[]) => {
+    const ings = await api.getProductIngredients()
+
+    const byProduct: Record<number, ProductIngredient[]> = {}
+    for (const ing of ings) {
+      if (!byProduct[ing.product]) byProduct[ing.product] = []
+      byProduct[ing.product].push(ing)
+    }
+
+    const patches: Record<number, number> = {}
+    const calls: Promise<unknown>[] = []
+
+    for (const [productIdStr, pIngs] of Object.entries(byProduct)) {
+      const productId = parseInt(productIdStr)
+      let bottleneck: number | null = null
+
+      for (const ing of pIngs) {
+        const mat = updatedMaterials.find(m => m.id === ing.raw_material)
+        if (!mat) continue
+        const stockQty     = parseFloat(mat.stock_qty) || 0
+        const yieldMin     = parseFloat(ing.yield_min)
+        const qtyPerServing = parseFloat(ing.qty_per_serving)
+        if (!yieldMin || !qtyPerServing) continue
+        // An ingredient with stock_qty = 0 means it's out — that IS the bottleneck
+        const servings = Math.floor((stockQty * yieldMin) / qtyPerServing)
+        if (bottleneck === null || servings < bottleneck) bottleneck = servings
+      }
+
+      if (bottleneck !== null) {
+        patches[productId] = bottleneck
+        calls.push(api.updateProduct(productId, { stock: bottleneck }).catch(() => {}))
+      }
+    }
+
+    await Promise.all(calls)
+    if (Object.keys(patches).length > 0) {
+      setProducts(prev => prev.map(p =>
+        patches[p.id] !== undefined ? { ...p, stock: patches[p.id] } : p,
+      ))
+    }
+  }, [])
+
   const subtitle: Record<Tab, string> = {
     stock:     'Track stock levels for your menu items',
     raw_stock: 'Set ingredient quantities on hand — auto-calculates serving units available',
@@ -1040,7 +1099,7 @@ export default function InventoryPage() {
       </div>
 
       {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} />}
-      {tab === 'raw_stock' && <RawStockTab />}
+      {tab === 'raw_stock' && <RawStockTab onStockChange={recalcProductStocks} />}
       {tab === 'costing'   && <CostingTab />}
       {tab === 'recipes'   && <RecipesTab />}
     </div>
