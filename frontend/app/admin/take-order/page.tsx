@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
+import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
 import { printReceipt, ReceiptData } from '@/app/lib/printReceipt'
 
@@ -25,6 +26,8 @@ export default function TakeOrderPage() {
   const [tables, setTables]           = useState<Table[]>([])
   const [lastPlaced, setLastPlaced]         = useState<LastPlaced | null>(null)
   const [lastReceiptData, setLastReceiptData] = useState<ReceiptData | null>(null)
+  const [stockWarn, setStockWarn]           = useState<string | null>(null)
+  const stockWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [dfCustom, setDfCustom]       = useState<{ value: string } | null>(null)
   const [dfOutputNames, setDfOutputNames] = useState<Record<number, string>>(() => {
     if (typeof window === 'undefined') return {}
@@ -36,6 +39,14 @@ export default function TakeOrderPage() {
 
   useEffect(() => { api.getMenu().then(setProducts) }, [])
   useEffect(() => { api.getTables().then(ts => setTables(ts.filter(t => t.is_active))) }, [])
+
+  const handleWsMessage = useCallback((msg: WsMessage) => {
+    if (msg.type === 'PRODUCT_UPDATE') {
+      const updated = msg as unknown as Product
+      setProducts(prev => prev.map(p => p.id === updated.id ? updated : p))
+    }
+  }, [])
+  useWebSocket((process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000') + '/ws/pos/', handleWsMessage)
 
   useEffect(() => {
     const last = localStorage.getItem('pos_last_slip_number')
@@ -94,7 +105,28 @@ export default function TakeOrderPage() {
     sectionRefs.current[cat]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  const warnStock = (msg: string) => {
+    setStockWarn(msg)
+    if (stockWarnTimer.current) clearTimeout(stockWarnTimer.current)
+    stockWarnTimer.current = setTimeout(() => setStockWarn(null), 3000)
+  }
+
   const pushToCart = (productId: number, name: string, price: number) => {
+    const product = products.find(p => p.id === productId)
+    if (product) {
+      let stock: number | null = null
+      if (product.variations?.length) {
+        const varName = name.startsWith(product.name + ' - ') ? name.slice(product.name.length + 3) : null
+        const v = varName ? product.variations.find(v => v.name === varName) : null
+        stock = v?.stock ?? null
+      } else {
+        stock = product.stock ?? null
+      }
+      if (stock !== null) {
+        const currentQty = cart.filter(i => i.name === name).reduce((s, i) => s + i.quantity, 0)
+        if (stock === 0 || currentQty >= stock) warnStock(`⚠ ${name} — out of stock`)
+      }
+    }
     setCart(prev => {
       const existing = prev.find(i => i.name === name && !(i.discount ?? 0))
       if (existing) return prev.map(i => (i.name === name && !(i.discount ?? 0)) ? { ...i, quantity: i.quantity + 1 } : i)
@@ -152,6 +184,19 @@ export default function TakeOrderPage() {
 
   const cartCountFor = (productId: number) =>
     cart.filter(i => i.productId === productId).reduce((s, i) => s + i.quantity, 0)
+
+  const stockForCartItem = (item: OrderItem): number | null => {
+    const product = products.find(p => p.id === item.productId)
+    if (!product) return null
+    if (product.variations?.length) {
+      const varName = item.name.startsWith(product.name + ' - ')
+        ? item.name.slice(product.name.length + 3)
+        : null
+      const v = varName ? product.variations.find(v => v.name === varName) : null
+      return v?.stock ?? null
+    }
+    return product.stock ?? null
+  }
 
   const replaceVariation = (idx: number, newName: string, newPrice: number, productId: number, qty: number, discount: number) => {
     setCart(prev => {
@@ -233,6 +278,13 @@ export default function TakeOrderPage() {
     <>
     {/* Full-page layout — negate the admin main p-8 padding */}
     <div className="-m-8 h-screen flex flex-col overflow-hidden bg-gray-50">
+
+      {/* ── Stock warning toast ── */}
+      {stockWarn && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg z-[60] whitespace-nowrap">
+          {stockWarn}
+        </div>
+      )}
 
       {/* ── Success banner ── */}
       {lastPlaced && (
@@ -373,12 +425,22 @@ export default function TakeOrderPage() {
                             {p.variations.map((v, vi) => {
                               const varName = `${p.name} - ${v.name}`
                               const inCart = cart.find(c => c.name === varName)
+                              const varQty = inCart?.quantity ?? 0
+                              const varRemaining = v.stock != null ? Math.max(0, v.stock - varQty) : null
+                              const outOfStock = varRemaining !== null && varRemaining === 0
                               return (
-                                <button key={vi} onClick={() => pushToCart(p.id, varName, parseFloat(v.price))}
+                                <button key={vi}
+                                  onClick={() => pushToCart(p.id, varName, parseFloat(v.price))}
                                   className={`flex-1 rounded-lg py-1.5 px-1 text-center transition-all
                                     ${inCart ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
                                   <p className="text-xs font-semibold truncate leading-tight">{v.name}</p>
-                                  <p className={`text-[10px] leading-tight ${inCart ? 'text-white/80' : 'text-gray-400'}`}>₱{parseFloat(v.price).toFixed(2)}</p>
+                                  {outOfStock
+                                    ? <p className="text-[10px] leading-tight text-red-300">Out of stock</p>
+                                    : <p className={`text-[10px] leading-tight ${inCart ? 'text-white/80' : 'text-gray-400'}`}>₱{parseFloat(v.price).toFixed(2)}</p>
+                                  }
+                                  {varRemaining !== null && !outOfStock && varRemaining <= 10 && (
+                                    <p className={`text-[10px] leading-tight ${inCart ? 'text-amber-200' : 'text-amber-500'}`}>{varRemaining} left</p>
+                                  )}
                                   {inCart && <p className="text-xs font-bold leading-tight">×{inCart.quantity}</p>}
                                 </button>
                               )
@@ -403,12 +465,16 @@ export default function TakeOrderPage() {
                       </div>
                       <div className="px-2 pt-2 pb-2">
                         <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
-                        {p.stock !== null && (
-                          <p className={`text-[10px] font-semibold mb-1 ${p.stock === 0 ? 'text-red-400' : p.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
-                            {p.stock === 0 ? 'Out of stock' : `${p.stock} left`}
-                          </p>
-                        )}
-                        <button type="button" onClick={() => pushToCart(p.id, p.name, parseFloat(p.price))}
+                        {p.stock !== null && (() => {
+                          const remaining = Math.max(0, p.stock - count)
+                          return (
+                            <p className={`text-[10px] font-semibold mb-1 ${remaining === 0 ? 'text-red-400' : remaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                              {remaining === 0 ? 'Out of stock' : `${remaining} left`}
+                            </p>
+                          )
+                        })()}
+                        <button type="button"
+                          onClick={() => pushToCart(p.id, p.name, parseFloat(p.price))}
                           className={`w-full rounded-lg py-1.5 text-center text-xs font-semibold transition-all
                             ${count > 0 ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
                           ₱{parseFloat(p.price).toFixed(2)}

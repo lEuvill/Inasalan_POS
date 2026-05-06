@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, Product, Order, OrderItem, OrderStatus, ProductVariation } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
@@ -32,6 +32,8 @@ export default function MenuPage() {
   const [showCart, setShowCart] = useState(false)
   const [placing, setPlacing] = useState(false)
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
+  const [stockWarn, setStockWarn] = useState<string | null>(null)
+  const stockWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     api.getMenu().then(setProducts)
@@ -43,6 +45,9 @@ export default function MenuPage() {
       if (activeOrder && updated.id === activeOrder.id) {
         setActiveOrder(updated)
       }
+    } else if (msg.type === 'PRODUCT_UPDATE') {
+      const updated = msg as unknown as Product
+      setProducts(prev => prev.map(p => p.id === updated.id ? updated : p))
     }
   }, [activeOrder])
 
@@ -51,7 +56,31 @@ export default function MenuPage() {
   const categories = ['All', ...new Set(products.map(p => p.category).filter(Boolean))]
   const visible = activeCategory === 'All' ? products : products.filter(p => p.category === activeCategory)
 
+  const warnStock = (msg: string) => {
+    setStockWarn(msg)
+    if (stockWarnTimer.current) clearTimeout(stockWarnTimer.current)
+    stockWarnTimer.current = setTimeout(() => setStockWarn(null), 3000)
+  }
+
   const pushToCart = (productId: number, name: string, price: number) => {
+    // Warn if item is at or over its stock limit
+    const product = products.find(p => p.id === productId)
+    if (product) {
+      let stock: number | null = null
+      if (product.variations?.length) {
+        const varName = name.startsWith(product.name + ' - ') ? name.slice(product.name.length + 3) : null
+        const v = varName ? product.variations.find(v => v.name === varName) : null
+        stock = v?.stock ?? null
+      } else {
+        stock = product.stock ?? null
+      }
+      if (stock !== null) {
+        const currentQty = cart.filter(i => i.name === name).reduce((s, i) => s + i.quantity, 0)
+        if (stock === 0 || currentQty >= stock) {
+          warnStock(`⚠ ${name} — out of stock`)
+        }
+      }
+    }
     setCart(prev => {
       const existing = prev.find(i => i.name === name)
       if (existing) return prev.map(i => i.name === name ? { ...i, quantity: i.quantity + 1 } : i)
@@ -76,6 +105,22 @@ export default function MenuPage() {
 
   const cartCountFor = (productId: number) =>
     cart.filter(i => i.productId === productId).reduce((s, i) => s + i.quantity, 0)
+
+  const variationCartQty = (productName: string, variationName: string) =>
+    cart.find(i => i.name === `${productName} - ${variationName}`)?.quantity ?? 0
+
+  const stockFor = (item: CartItem): number | null => {
+    const product = products.find(p => p.id === item.productId)
+    if (!product) return null
+    if (product.variations?.length) {
+      const varName = item.name.startsWith(product.name + ' - ')
+        ? item.name.slice(product.name.length + 3)
+        : null
+      const v = varName ? product.variations.find(v => v.name === varName) : null
+      return v?.stock ?? null
+    }
+    return product.stock ?? null
+  }
 
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0)
   const cartCount = cart.reduce((sum, i) => sum + i.quantity, 0)
@@ -168,9 +213,24 @@ export default function MenuPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {visible.map(product => {
             const hasVariations = product.variations && product.variations.length > 0
-            const count = cartCountFor(product.id)
+            const inCart = cartCountFor(product.id)
             const singleEntry = !hasVariations ? cart.find(i => i.productId === product.id) : null
-            const outOfStock = product.stock === 0
+
+            // Out of stock: for variation products, true only when every variation is depleted
+            const outOfStock = hasVariations
+              ? product.variations.every(v =>
+                  v.stock === 0 || (v.stock != null && variationCartQty(product.name, v.name) >= v.stock)
+                )
+              : product.stock === 0
+
+            // Remaining stock after what's in cart (non-variation only)
+            const remaining = !hasVariations && product.stock != null
+              ? Math.max(0, product.stock - inCart)
+              : null
+
+            // Non-variation: disable + when cart is at stock limit
+            const atLimit = !hasVariations && product.stock != null && inCart >= product.stock
+
             return (
               <div key={product.id} className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden ${outOfStock ? 'opacity-60' : ''}`}>
                 <div className="h-32 bg-orange-50 flex items-center justify-center overflow-hidden relative">
@@ -191,16 +251,12 @@ export default function MenuPage() {
                     ? <p className="text-xs text-gray-400 mt-0.5">{product.variations.length} options</p>
                     : <p className="text-brand font-bold text-sm mt-0.5">₱{parseFloat(product.price).toFixed(2)}</p>
                   }
-                  {product.stock !== null && !outOfStock && (
-                    <p className={`text-xs font-semibold mt-0.5 ${product.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
-                      {product.stock} left
+                  {remaining !== null && (
+                    <p className={`text-xs font-semibold mt-0.5 ${remaining === 0 ? 'text-red-400' : remaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                      {remaining === 0 ? 'Out of stock' : `${remaining} left`}
                     </p>
                   )}
-                  {outOfStock ? (
-                    <div className="mt-2 w-full bg-gray-100 text-gray-400 text-xs font-semibold py-1.5 rounded-xl text-center">
-                      Unavailable
-                    </div>
-                  ) : !hasVariations && singleEntry ? (
+                  {!hasVariations && singleEntry ? (
                     <div className="flex items-center gap-2 mt-2">
                       <button
                         onClick={() => updateQty(singleEntry.name, -1)}
@@ -217,7 +273,7 @@ export default function MenuPage() {
                       onClick={() => addToCart(product)}
                       className="mt-2 w-full bg-brand text-white text-xs font-semibold py-1.5 rounded-xl hover:bg-brand-dark transition-colors flex items-center justify-center gap-1"
                     >
-                      {hasVariations && count > 0 ? `Add more (${count})` : 'Add'}
+                      {hasVariations && inCart > 0 ? `Add more (${inCart})` : 'Add'}
                     </button>
                   )}
                 </div>
@@ -226,6 +282,13 @@ export default function MenuPage() {
           })}
         </div>
       </div>
+
+      {/* Stock warning toast */}
+      {stockWarn && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg z-50">
+          {stockWarn}
+        </div>
+      )}
 
       {/* Cart drawer */}
       {showCart && (
@@ -238,20 +301,26 @@ export default function MenuPage() {
             </div>
             <div className="flex-1 overflow-auto p-5 space-y-3">
               {cart.length === 0 && <p className="text-gray-400 text-center py-8">Cart is empty</p>}
-              {cart.map(item => (
-                <div key={item.key} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                    <p className="text-xs text-gray-400">₱{item.price.toFixed(2)} each</p>
+              {cart.map(item => {
+                const stock = stockFor(item)
+                return (
+                  <div key={item.key} className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                      <p className="text-xs text-gray-400">₱{item.price.toFixed(2)} each</p>
+                      {stock !== null && item.quantity > stock && (
+                        <p className="text-xs text-red-400 font-semibold">Only {stock} available</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => updateQty(item.name, -1)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200">−</button>
+                      <span className="text-sm font-semibold w-4 text-center">{item.quantity}</span>
+                      <button onClick={() => updateQty(item.name, 1)} className="w-6 h-6 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-700 w-16 text-right">₱{(item.price * item.quantity).toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => updateQty(item.name, -1)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200">−</button>
-                    <span className="text-sm font-semibold w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => updateQty(item.name, 1)} className="w-6 h-6 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-700 w-16 text-right">₱{(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="p-5 border-t border-gray-100">
               <div className="flex justify-between mb-4 font-bold text-gray-800">
@@ -275,6 +344,7 @@ export default function MenuPage() {
       <VariationPicker
         productName={pendingProduct.name}
         variations={pendingProduct.variations}
+        getCartQty={(varName) => variationCartQty(pendingProduct.name, varName)}
         onSelect={(v: ProductVariation) => {
           pushToCart(pendingProduct.id, `${pendingProduct.name} - ${v.name}`, parseFloat(v.price))
           setPendingProduct(null)
