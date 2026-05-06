@@ -368,7 +368,7 @@ function RawStockRow({
   )
 }
 
-function RawStockTab({ onStockChange }: { onStockChange: (updatedMaterials: RawMaterial[]) => void }) {
+function RawStockTab({ onStockChange }: { onStockChange: () => void }) {
   const [materials, setMaterials] = useState<RawMaterial[]>([])
   const [loading, setLoading]     = useState(true)
   const [syncing, setSyncing]     = useState(false)
@@ -381,11 +381,9 @@ function RawStockTab({ onStockChange }: { onStockChange: (updatedMaterials: RawM
   useEffect(() => { load() }, [load])
 
   const handleSaved = (id: number, stock_qty: string) => {
-    const updated = materials.map(m => m.id === id ? { ...m, stock_qty } : m)
-    setMaterials(updated)
+    setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock_qty } : m))
     setSyncing(true)
-    onStockChange(updated)
-    // syncing badge cleared by parent when done — we use a short local timeout as fallback
+    onStockChange()
     setTimeout(() => setSyncing(false), 2000)
   }
 
@@ -910,7 +908,7 @@ function IngredientRow({
 // A "recipe entry" is either a plain product (variationName='') or one variation of a product.
 type RecipeEntry = { productId: number; productName: string; variationName: string; category: string }
 
-function RecipesTab() {
+function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
   const [products, setProducts]     = useState<Product[]>([])
   const [materials, setMaterials]   = useState<RawMaterial[]>([])
   const [allIngredients, setAll]    = useState<ProductIngredient[]>([])
@@ -983,17 +981,20 @@ function RecipesTab() {
       setNewMatId('')
       setNewQty('')
       setAdding(false)
+      onRecipeChanged()
     } finally { setSaving(false) }
   }
 
   const handleDelete = async (id: number) => {
     await api.deleteProductIngredient(id)
     setAll(prev => prev.filter(i => i.id !== id))
+    onRecipeChanged()
   }
 
   const handleUpdateQty = async (id: number, qty: string) => {
     const updated = await api.updateProductIngredient(id, { qty_per_serving: qty })
     setAll(prev => prev.map(i => i.id === id ? updated : i))
+    onRecipeChanged()
   }
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
@@ -1194,50 +1195,85 @@ export default function InventoryPage() {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, variations: updatedVariations } : p))
   }
 
-  // Called by RawStockTab whenever an ingredient stock changes.
-  // Fetches fresh recipe links, recalculates the bottleneck yield for every
-  // product that has ingredients configured, then patches product.stock.
-  const recalcProductStocks = useCallback(async (updatedMaterials: RawMaterial[]) => {
-    const ings = await api.getProductIngredients()
+  // Called when raw stock OR recipe links change.
+  // Groups by (product, variation_name), computes bottleneck yield, then:
+  //   – variation_name === '' → patches product.stock
+  //   – variation_name !== '' → patches the matching variation.stock inside product.variations
+  const recalcProductStocks = useCallback(async () => {
+    const [ings, mats] = await Promise.all([api.getProductIngredients(), api.getRawMaterials()])
 
-    const byProduct: Record<number, ProductIngredient[]> = {}
+    // Group by "productId__variationName"
+    const byEntry: Record<string, ProductIngredient[]> = {}
     for (const ing of ings) {
-      if (!byProduct[ing.product]) byProduct[ing.product] = []
-      byProduct[ing.product].push(ing)
+      const key = `${ing.product}__${ing.variation_name ?? ''}`
+      if (!byEntry[key]) byEntry[key] = []
+      byEntry[key].push(ing)
     }
 
-    const patches: Record<number, number> = {}
-    const calls: Promise<unknown>[] = []
+    const plainPatches: Record<number, number> = {}
+    const varPatches: Record<number, Record<string, number>> = {}
 
-    for (const [productIdStr, pIngs] of Object.entries(byProduct)) {
-      const productId = parseInt(productIdStr)
+    for (const [key, entries] of Object.entries(byEntry)) {
+      const sep = key.indexOf('__')
+      const productId = parseInt(key.slice(0, sep))
+      const variationName = key.slice(sep + 2)
+
       let bottleneck: number | null = null
-
-      for (const ing of pIngs) {
-        const mat = updatedMaterials.find(m => m.id === ing.raw_material)
+      for (const ing of entries) {
+        const mat = mats.find(m => m.id === ing.raw_material)
         if (!mat) continue
-        const stockQty     = parseFloat(mat.stock_qty) || 0
-        const yieldMin     = parseFloat(ing.yield_min)
+        const stockQty      = parseFloat(mat.stock_qty) || 0
+        const yieldMin      = parseFloat(ing.yield_min)
         const qtyPerServing = parseFloat(ing.qty_per_serving)
         if (!yieldMin || !qtyPerServing) continue
-        // An ingredient with stock_qty = 0 means it's out — that IS the bottleneck
         const servings = Math.floor((stockQty * yieldMin) / qtyPerServing)
         if (bottleneck === null || servings < bottleneck) bottleneck = servings
       }
 
-      if (bottleneck !== null) {
-        patches[productId] = bottleneck
-        calls.push(api.updateProduct(productId, { stock: bottleneck }).catch(() => {}))
+      if (bottleneck === null) continue
+
+      if (variationName === '') {
+        plainPatches[productId] = bottleneck
+      } else {
+        if (!varPatches[productId]) varPatches[productId] = {}
+        varPatches[productId][variationName] = bottleneck
       }
     }
 
-    await Promise.all(calls)
-    if (Object.keys(patches).length > 0) {
-      setProducts(prev => prev.map(p =>
-        patches[p.id] !== undefined ? { ...p, stock: patches[p.id] } : p,
-      ))
+    const calls: Promise<unknown>[] = []
+
+    for (const [pidStr, stock] of Object.entries(plainPatches)) {
+      calls.push(api.updateProduct(parseInt(pidStr), { stock }).catch(() => {}))
     }
-  }, [])
+
+    // For each product with variation patches, send one PATCH with the full updated variations array
+    for (const [pidStr, vMap] of Object.entries(varPatches)) {
+      const productId = parseInt(pidStr)
+      const product = products.find(p => p.id === productId)
+      if (!product) continue
+      const updatedVariations = product.variations.map(v =>
+        vMap[v.name] !== undefined ? { ...v, stock: vMap[v.name] } : v
+      )
+      calls.push(api.updateProduct(productId, { variations: updatedVariations }).catch(() => {}))
+    }
+
+    await Promise.all(calls)
+
+    setProducts(prev => prev.map(p => {
+      let updated = p
+      if (plainPatches[p.id] !== undefined) updated = { ...updated, stock: plainPatches[p.id] }
+      if (varPatches[p.id]) {
+        const vMap = varPatches[p.id]
+        updated = {
+          ...updated,
+          variations: updated.variations.map(v =>
+            vMap[v.name] !== undefined ? { ...v, stock: vMap[v.name] } : v
+          ),
+        }
+      }
+      return updated
+    }))
+  }, [products])
 
   const subtitle: Record<Tab, string> = {
     stock:     'Track stock levels for your menu items',
@@ -1273,7 +1309,7 @@ export default function InventoryPage() {
       {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} onVariationSaved={handleVariationSaved} />}
       {tab === 'raw_stock' && <RawStockTab onStockChange={recalcProductStocks} />}
       {tab === 'costing'   && <CostingTab />}
-      {tab === 'recipes'   && <RecipesTab />}
+      {tab === 'recipes'   && <RecipesTab onRecipeChanged={recalcProductStocks} />}
     </div>
   )
 }
