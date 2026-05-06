@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, Order, Transaction, Table, RawMaterial
+from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -40,4 +40,17 @@ class TableSerializer(serializers.ModelSerializer):
 class RawMaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = RawMaterial
+        fields = '__all__'
+
+
+class ProductIngredientSerializer(serializers.ModelSerializer):
+    raw_material_name = serializers.CharField(source='raw_material.name', read_only=True)
+    serving_unit = serializers.CharField(source='raw_material.serving_unit', read_only=True)
+    purchase_unit = serializers.CharField(source='raw_material.purchase_unit', read_only=True)
+    stock_qty = serializers.DecimalField(source='raw_material.stock_qty', max_digits=10, decimal_places=3, read_only=True)
+    yield_min = serializers.DecimalField(source='raw_material.yield_min', max_digits=10, decimal_places=3, read_only=True)
+    yield_max = serializers.DecimalField(source='raw_material.yield_max', max_digits=10, decimal_places=3, read_only=True)
+
+    class Meta:
+        model = ProductIngredient
         fields = '__all__'

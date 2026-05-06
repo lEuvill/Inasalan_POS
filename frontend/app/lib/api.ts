@@ -78,8 +78,22 @@ export type RawMaterial = {
   serving_unit: string
   yield_min: string
   yield_max: string
+  stock_qty: string
   notes: string
   updated_at: string
+}
+
+export type ProductIngredient = {
+  id: number
+  product: number
+  raw_material: number
+  qty_per_serving: string
+  raw_material_name: string
+  serving_unit: string
+  purchase_unit: string
+  stock_qty: string
+  yield_min: string
+  yield_max: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -141,4 +155,13 @@ export const api = {
     request<RawMaterial>(`/api/raw-materials/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteRawMaterial: (id: number) =>
     request<void>(`/api/raw-materials/${id}/`, { method: 'DELETE' }),
+
+  // Product Ingredients (Recipes)
+  getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),
+  createProductIngredient: (data: { product: number; raw_material: number; qty_per_serving: string }) =>
+    request<ProductIngredient>('/api/product-ingredients/', { method: 'POST', body: JSON.stringify(data) }),
+  updateProductIngredient: (id: number, data: { qty_per_serving: string }) =>
+    request<ProductIngredient>(`/api/product-ingredients/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProductIngredient: (id: number) =>
+    request<void>(`/api/product-ingredients/${id}/`, { method: 'DELETE' }),
 }

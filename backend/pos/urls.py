@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     ProductViewSet, OrderViewSet, TransactionViewSet, TableViewSet,
-    RawMaterialViewSet, SyncPushView, SyncPullView,
+    RawMaterialViewSet, ProductIngredientViewSet, SyncPushView, SyncPullView,
 )
 
 router = DefaultRouter()
@@ -11,6 +11,7 @@ router.register('orders', OrderViewSet)
 router.register('transactions', TransactionViewSet)
 router.register('tables', TableViewSet)
 router.register('raw-materials', RawMaterialViewSet)
+router.register('product-ingredients', ProductIngredientViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
