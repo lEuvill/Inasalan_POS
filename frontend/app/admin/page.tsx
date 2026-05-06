@@ -5,6 +5,19 @@ import Link from 'next/link'
 import { api, Order, Transaction, OrderStatus } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
+import { printReceipt, ReceiptData, loadPrintSettings, savePrintSettings, PrintSettings } from '@/app/lib/printReceipt'
+
+function orderToReceipt(order: Order): ReceiptData {
+  return {
+    slipNumber:    order.slip_number ?? undefined,
+    orderType:     order.order_type,
+    paymentMethod: order.payment_method,
+    tableNumber:   order.table_number || undefined,
+    items:         order.items_json,
+    total:         parseFloat(order.total),
+    date:          new Date(order.created_at),
+  }
+}
 
 const WS_URL = (process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000') + '/ws/pos/'
 
@@ -88,6 +101,88 @@ function VoidConfirmModal({
   )
 }
 
+// ── Print settings modal ──────────────────────────────────────────────────────
+
+function SettingRow({
+  label, hint, value, min, max, step, onChange,
+}: {
+  label: string; hint: string; value: number
+  min: number; max: number; step: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <input
+          type="number"
+          value={value}
+          min={min} max={max} step={step}
+          onChange={e => onChange(parseFloat(e.target.value) || 0)}
+          className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-sm text-right focus:outline-none focus:border-brand"
+        />
+      </div>
+      <input
+        type="range"
+        value={value}
+        min={min} max={max} step={step}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        className="w-full accent-brand"
+      />
+      <p className="text-xs text-gray-400 mt-0.5">{hint}</p>
+    </div>
+  )
+}
+
+function PrintSettingsModal({ onClose }: { onClose: () => void }) {
+  const [s, setS] = useState<PrintSettings>(() => loadPrintSettings())
+  const upd = (key: keyof PrintSettings, v: number) => setS(prev => ({ ...prev, [key]: v }))
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+        <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Thermal Printer</p>
+        <h3 className="font-bold text-gray-800 text-lg mb-4">Print Settings</h3>
+
+        <div className="space-y-5">
+          <SettingRow
+            label="Body Width (mm)" hint="Content area width — shrink if right side clips"
+            value={s.bodyWidth} min={28} max={50} step={0.5}
+            onChange={v => upd('bodyWidth', v)}
+          />
+          <SettingRow
+            label="Left Offset (mm)" hint="Shift content right (+) or left (−) from driver edge"
+            value={s.marginLeft} min={-6} max={10} step={0.5}
+            onChange={v => upd('marginLeft', v)}
+          />
+          <SettingRow
+            label="Font Size (mm)" hint="Base size for item rows"
+            value={s.fontSize} min={1.5} max={5} step={0.1}
+            onChange={v => upd('fontSize', v)}
+          />
+          <SettingRow
+            label="Line Height" hint="Spacing between lines"
+            value={s.lineHeight} min={1.0} max={2.5} step={0.1}
+            onChange={v => upd('lineHeight', v)}
+          />
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => { savePrintSettings(s); onClose() }}
+            className="flex-1 bg-brand text-white rounded-xl py-2 text-sm font-semibold hover:bg-brand-dark"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -95,6 +190,7 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [editOrderId, setEditOrderId] = useState<number | null>(null)
   const [voidOrderId, setVoidOrderId] = useState<number | null>(null)
+  const [showPrintSettings, setShowPrintSettings] = useState(false)
 
   const load = useCallback(async () => {
     const [orders, txns] = await Promise.all([api.getOrders(true), api.getTransactions()])
@@ -160,12 +256,24 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-        <Link
-          href="/admin/take-order"
-          className="bg-brand text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-brand-dark transition-colors text-sm flex items-center gap-2"
-        >
-          <span className="text-base">+</span> Take Order
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowPrintSettings(true)}
+            className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Print settings"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+          <Link
+            href="/admin/take-order"
+            className="bg-brand text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-brand-dark transition-colors text-sm flex items-center gap-2"
+          >
+            <span className="text-base">+</span> Take Order
+          </Link>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -239,6 +347,13 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-gray-800">₱{order.total}</span>
                   <button
+                    onClick={() => printReceipt(orderToReceipt(order))}
+                    className="text-xs text-gray-400 hover:text-brand px-1.5 py-1 rounded-lg hover:bg-orange-50 transition-colors"
+                    title="Print receipt"
+                  >
+                    Print
+                  </button>
+                  <button
                     onClick={() => setVoidOrderId(order.id)}
                     className="text-xs text-red-300 hover:text-red-500 px-1.5 py-1 rounded-lg hover:bg-red-50 transition-colors"
                     title="Void order"
@@ -289,6 +404,11 @@ export default function DashboardPage() {
           }}
           onCancel={() => setVoidOrderId(null)}
         />
+      )}
+
+      {/* Print settings modal */}
+      {showPrintSettings && (
+        <PrintSettingsModal onClose={() => setShowPrintSettings(false)} />
       )}
     </div>
   )

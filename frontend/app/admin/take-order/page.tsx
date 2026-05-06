@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
 import { VariationPicker } from '@/app/components/VariationPicker'
+import { printReceipt, ReceiptData } from '@/app/lib/printReceipt'
 
 type OrderStep = 'cart' | 'payment' | 'table'
 
@@ -22,7 +23,8 @@ export default function TakeOrderPage() {
   const [amountTendered, setAmountTendered] = useState('')
   const [tableNumber, setTableNumber] = useState('')
   const [tables, setTables]           = useState<Table[]>([])
-  const [lastPlaced, setLastPlaced]   = useState<LastPlaced | null>(null)
+  const [lastPlaced, setLastPlaced]         = useState<LastPlaced | null>(null)
+  const [lastReceiptData, setLastReceiptData] = useState<ReceiptData | null>(null)
   const [dfCustom, setDfCustom]       = useState<{ value: string } | null>(null)
   const [dfOutputNames, setDfOutputNames] = useState<Record<number, string>>(() => {
     if (typeof window === 'undefined') return {}
@@ -181,9 +183,10 @@ export default function TakeOrderPage() {
     setPlacing(true)
     try {
       const slip = slipNumber.trim()
+      const roundedTotal = Math.round(total * 100) / 100
       await api.createOrder({
         items_json: cart,
-        total: Math.round(total * 100) / 100,
+        total: roundedTotal,
         source: 'walk-in',
         order_type: orderType,
         payment_method: paymentMethod,
@@ -192,8 +195,22 @@ export default function TakeOrderPage() {
       })
       if (slip) localStorage.setItem('pos_last_slip_number', slip)
 
+      // Build and print receipt
+      const receipt: ReceiptData = {
+        slipNumber: slip || undefined,
+        orderType,
+        paymentMethod,
+        tableNumber: tbl.trim() || undefined,
+        items: cart,
+        total: roundedTotal,
+        amountTendered: paymentMethod === 'CASH' && amountTendered ? parseFloat(amountTendered) : undefined,
+        date: new Date(),
+      }
+      setLastReceiptData(receipt)
+      printReceipt(receipt)
+
       // Show success banner then auto-dismiss
-      const placed: LastPlaced = { slip: slip || '—', total: Math.round(total * 100) / 100, table: tbl.trim() }
+      const placed: LastPlaced = { slip: slip || '—', total: roundedTotal, table: tbl.trim() }
       setLastPlaced(placed)
       if (bannerTimer.current) clearTimeout(bannerTimer.current)
       bannerTimer.current = setTimeout(() => setLastPlaced(null), 4000)
@@ -230,7 +247,17 @@ export default function TakeOrderPage() {
               <p className="text-xs text-green-100 leading-tight">₱{lastPlaced.total.toFixed(2)} · Ready for next order</p>
             </div>
           </div>
-          <button onClick={() => setLastPlaced(null)} className="text-green-200 hover:text-white text-lg leading-none">✕</button>
+          <div className="flex items-center gap-3">
+            {lastReceiptData && (
+              <button
+                onClick={() => printReceipt(lastReceiptData)}
+                className="text-xs font-semibold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                🖨 Reprint
+              </button>
+            )}
+            <button onClick={() => setLastPlaced(null)} className="text-green-200 hover:text-white text-lg leading-none">✕</button>
+          </div>
         </div>
       )}
 

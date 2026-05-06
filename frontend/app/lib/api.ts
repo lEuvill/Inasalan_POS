@@ -4,6 +4,7 @@ export type ProductVariation = {
   name: string
   price: string
   output_name?: string
+  stock?: number | null
 }
 
 export type Product = {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { api, Product, RawMaterial, ProductIngredient } from '@/app/lib/api'
+import { api, Product, ProductVariation, RawMaterial, ProductIngredient } from '@/app/lib/api'
 
 // ─── Stock tab ────────────────────────────────────────────────────────────────
 
@@ -95,10 +95,109 @@ function StockRow({ product, onSaved }: { product: Product; onSaved: (id: number
   )
 }
 
-function StockTab({ products, onSaved }: { products: Product[]; onSaved: (id: number, stock: number | null) => void }) {
-  const tracked    = products.filter(p => p.stock !== null)
-  const outOfStock = products.filter(p => p.stock === 0)
-  const lowStock   = products.filter(p => p.stock !== null && p.stock > 0 && p.stock <= LOW_STOCK)
+function VariationStockRow({
+  product,
+  variationIndex,
+  variation,
+  onSaved,
+}: {
+  product: Product
+  variationIndex: number
+  variation: ProductVariation
+  onSaved: (productId: number, updatedVariations: ProductVariation[]) => void
+}) {
+  const [draft, setDraft] = useState(variation.stock == null ? '' : String(variation.stock))
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const status = stockStatus(variation.stock ?? null)
+
+  useEffect(() => {
+    setDraft(variation.stock == null ? '' : String(variation.stock))
+  }, [variation.stock])
+
+  const save = async (value: number | null) => {
+    if (value === (variation.stock ?? null)) return
+    setSaving(true)
+    try {
+      const updatedVariations = product.variations.map((v, i) =>
+        i === variationIndex ? { ...v, stock: value } : v
+      )
+      await api.updateProduct(product.id, { variations: updatedVariations })
+      onSaved(product.id, updatedVariations)
+    } finally { setSaving(false) }
+  }
+
+  const commitDraft = () => {
+    const n = parseInt(draft, 10)
+    if (draft.trim() === '') save(null)
+    else if (!isNaN(n) && n >= 0) save(n)
+    else setDraft(variation.stock == null ? '' : String(variation.stock))
+  }
+
+  const adjust = (delta: number) => {
+    const next = Math.max(0, (variation.stock ?? 0) + delta)
+    setDraft(String(next))
+    save(next)
+  }
+
+  return (
+    <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 group pl-2">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[status]}`} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">
+          <span className="text-gray-400 text-xs">{product.name} · </span>
+          {variation.name}
+        </p>
+      </div>
+      <span className={`text-xs font-semibold w-10 text-right shrink-0
+        ${status === 'out' ? 'text-red-500' : status === 'low' ? 'text-amber-500' : status === 'good' ? 'text-green-600' : 'text-gray-300'}`}>
+        {STATUS_LABEL[status]}
+      </span>
+      {variation.stock == null ? (
+        <button
+          onClick={() => { setDraft('0'); save(0); setTimeout(() => inputRef.current?.focus(), 50) }}
+          className="text-xs text-gray-400 hover:text-brand font-semibold border border-dashed border-gray-200 hover:border-brand px-3 py-1.5 rounded-lg transition-colors w-32 text-center"
+        >
+          Track stock
+        </button>
+      ) : (
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => adjust(-1)} disabled={saving || (variation.stock ?? 0) <= 0}
+            className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-sm font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 transition-colors">−</button>
+          <input
+            ref={inputRef}
+            type="number" min="0" value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={e => { if (e.key === 'Enter') { commitDraft(); inputRef.current?.blur() } }}
+            className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold text-gray-800 focus:outline-none focus:border-brand"
+          />
+          <button onClick={() => adjust(1)} disabled={saving}
+            className="w-7 h-7 rounded-lg bg-brand text-white text-sm font-bold flex items-center justify-center hover:bg-brand-dark disabled:opacity-30 transition-colors">+</button>
+          <button onClick={() => { setDraft(''); save(null) }} title="Stop tracking"
+            className="w-7 h-7 rounded-lg text-gray-200 hover:text-red-400 hover:bg-red-50 text-xs font-bold flex items-center justify-center ml-0.5 opacity-0 group-hover:opacity-100 transition-all">✕</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StockTab({
+  products,
+  onSaved,
+  onVariationSaved,
+}: {
+  products: Product[]
+  onSaved: (id: number, stock: number | null) => void
+  onVariationSaved: (productId: number, updatedVariations: ProductVariation[]) => void
+}) {
+  // Flatten all stock entries: products with variations contribute one entry per variation
+  const allStocks = products.flatMap(p =>
+    p.variations.length > 0 ? p.variations.map(v => v.stock ?? null) : [p.stock]
+  )
+  const trackedCount    = allStocks.filter(s => s !== null).length
+  const outOfStockCount = allStocks.filter(s => s === 0).length
+  const lowStockCount   = allStocks.filter(s => s !== null && s > 0 && s <= LOW_STOCK).length
 
   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
     const cat = p.category || 'Uncategorized'
@@ -111,16 +210,16 @@ function StockTab({ products, onSaved }: { products: Product[]; onSaved: (id: nu
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{tracked.length}</p>
+          <p className="text-2xl font-bold text-gray-800">{trackedCount}</p>
           <p className="text-xs text-gray-400 mt-0.5">Tracked</p>
         </div>
-        <div className={`rounded-2xl border shadow-sm p-4 text-center ${lowStock.length > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
-          <p className={`text-2xl font-bold ${lowStock.length > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{lowStock.length}</p>
-          <p className={`text-xs mt-0.5 ${lowStock.length > 0 ? 'text-amber-500' : 'text-gray-400'}`}>Low Stock</p>
+        <div className={`rounded-2xl border shadow-sm p-4 text-center ${lowStockCount > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
+          <p className={`text-2xl font-bold ${lowStockCount > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{lowStockCount}</p>
+          <p className={`text-xs mt-0.5 ${lowStockCount > 0 ? 'text-amber-500' : 'text-gray-400'}`}>Low Stock</p>
         </div>
-        <div className={`rounded-2xl border shadow-sm p-4 text-center ${outOfStock.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
-          <p className={`text-2xl font-bold ${outOfStock.length > 0 ? 'text-red-600' : 'text-gray-800'}`}>{outOfStock.length}</p>
-          <p className={`text-xs mt-0.5 ${outOfStock.length > 0 ? 'text-red-500' : 'text-gray-400'}`}>Out of Stock</p>
+        <div className={`rounded-2xl border shadow-sm p-4 text-center ${outOfStockCount > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
+          <p className={`text-2xl font-bold ${outOfStockCount > 0 ? 'text-red-600' : 'text-gray-800'}`}>{outOfStockCount}</p>
+          <p className={`text-xs mt-0.5 ${outOfStockCount > 0 ? 'text-red-500' : 'text-gray-400'}`}>Out of Stock</p>
         </div>
       </div>
 
@@ -128,21 +227,41 @@ function StockTab({ products, onSaved }: { products: Product[]; onSaved: (id: nu
         <div className="text-center py-16 text-gray-400 text-sm">No menu items found. Add items in the Menu section first.</div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(grouped).map(([category, items]) => (
-            <div key={category} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{category}</span>
-                <span className="text-xs text-gray-400">{items.filter(p => p.stock !== null).length}/{items.length} tracked</span>
+          {Object.entries(grouped).map(([category, items]) => {
+            const categoryTotal = items.reduce((sum, p) =>
+              sum + (p.variations.length > 0 ? p.variations.length : 1), 0)
+            const categoryTracked = items.reduce((sum, p) => {
+              if (p.variations.length > 0) return sum + p.variations.filter(v => v.stock != null).length
+              return sum + (p.stock !== null ? 1 : 0)
+            }, 0)
+            return (
+              <div key={category} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{category}</span>
+                  <span className="text-xs text-gray-400">{categoryTracked}/{categoryTotal} tracked</span>
+                </div>
+                <div className="px-5">
+                  {items.map(p =>
+                    p.variations.length > 0
+                      ? p.variations.map((v, i) => (
+                          <VariationStockRow
+                            key={`${p.id}-${i}`}
+                            product={p}
+                            variationIndex={i}
+                            variation={v}
+                            onSaved={onVariationSaved}
+                          />
+                        ))
+                      : <StockRow key={p.id} product={p} onSaved={onSaved} />
+                  )}
+                </div>
               </div>
-              <div className="px-5">
-                {items.map(p => <StockRow key={p.id} product={p} onSaved={onSaved} />)}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {tracked.length > 0 && (
+      {trackedCount > 0 && (
         <div className="flex items-center gap-4 text-xs text-gray-400">
           {(['good', 'low', 'out'] as const).map(s => (
             <span key={s} className="flex items-center gap-1.5">
@@ -1022,6 +1141,10 @@ export default function InventoryPage() {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock } : p))
   }
 
+  const handleVariationSaved = (productId: number, updatedVariations: ProductVariation[]) => {
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, variations: updatedVariations } : p))
+  }
+
   // Called by RawStockTab whenever an ingredient stock changes.
   // Fetches fresh recipe links, recalculates the bottleneck yield for every
   // product that has ingredients configured, then patches product.stock.
@@ -1098,7 +1221,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} />}
+      {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} onVariationSaved={handleVariationSaved} />}
       {tab === 'raw_stock' && <RawStockTab onStockChange={recalcProductStocks} />}
       {tab === 'costing'   && <CostingTab />}
       {tab === 'recipes'   && <RecipesTab />}
