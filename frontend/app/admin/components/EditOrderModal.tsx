@@ -17,6 +17,7 @@ export function EditOrderModal({
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<OrderItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [completedAt, setCompletedAt] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -27,6 +28,11 @@ export function EditOrderModal({
       setOrder(ord)
       setCart(ord.items_json)
       setPaymentMethod(ord.payment_method)
+      if (ord.transaction?.completed_at) {
+        const d = new Date(ord.transaction.completed_at)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        setCompletedAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
+      }
       setProducts(prods)
       setLoading(false)
     })
@@ -86,9 +92,11 @@ export function EditOrderModal({
       const patchData: Parameters<typeof api.patchOrder>[1] = { items_json: cart, total }
       if (paymentMethod) patchData.payment_method = paymentMethod as PaymentMethod
       const updated = await api.patchOrder(order.id, patchData)
-      // If completed, also update the linked transaction total
+      // If completed, also update the linked transaction total and date
       if (updated.transaction) {
-        await api.patchTransaction(updated.transaction.id, { total })
+        const txPatch: { total?: number; completed_at?: string } = { total }
+        if (completedAt) txPatch.completed_at = new Date(completedAt).toISOString()
+        await api.patchTransaction(updated.transaction.id, txPatch)
       }
       onSaved(updated)
       onClose()
@@ -221,6 +229,18 @@ export function EditOrderModal({
                   <span>Total</span>
                   <span className="text-brand text-lg">₱{total.toFixed(2)}</span>
                 </div>
+                {/* Date/time (only for completed orders with a transaction) */}
+                {order?.status === 'COMPLETED' && completedAt && (
+                  <div>
+                    <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide block mb-1">Date &amp; Time</label>
+                    <input
+                      type="datetime-local"
+                      value={completedAt}
+                      onChange={e => setCompletedAt(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:border-brand"
+                    />
+                  </div>
+                )}
                 {/* Payment method toggle */}
                 <div className="flex gap-2">
                   <button

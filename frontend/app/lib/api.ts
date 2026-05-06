@@ -137,7 +137,7 @@ export const api = {
 
   // Transactions
   getTransactions: () => request<Transaction[]>('/api/transactions/'),
-  patchTransaction: (id: number, data: { total: number }) =>
+  patchTransaction: (id: number, data: { total?: number; completed_at?: string }) =>
     request<Transaction>(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Tables
