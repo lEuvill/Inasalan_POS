@@ -156,6 +156,158 @@ function StockTab({ products, onSaved }: { products: Product[]; onSaved: (id: nu
   )
 }
 
+// ─── Raw Stock tab ────────────────────────────────────────────────────────────
+
+function RawStockRow({
+  item,
+  onSaved,
+}: {
+  item: RawMaterial
+  onSaved: (id: number, stock_qty: string) => void
+}) {
+  const currentQty = parseFloat(item.stock_qty) || 0
+  const [draft, setDraft] = useState(currentQty > 0 ? String(currentQty) : '')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const n = parseFloat(item.stock_qty) || 0
+    setDraft(n > 0 ? String(n) : '')
+  }, [item.stock_qty])
+
+  const save = async (value: string) => {
+    if (parseFloat(value) === parseFloat(item.stock_qty)) return
+    setSaving(true)
+    try {
+      await api.updateRawMaterial(item.id, { stock_qty: value })
+      onSaved(item.id, value)
+    } finally { setSaving(false) }
+  }
+
+  const commitDraft = () => {
+    const n = parseFloat(draft)
+    if (draft.trim() === '') save('0')
+    else if (!isNaN(n) && n >= 0) save(String(n))
+    else { const c = parseFloat(item.stock_qty) || 0; setDraft(c > 0 ? String(c) : '') }
+  }
+
+  const adjust = (delta: number) => {
+    const next = Math.max(0, (parseFloat(item.stock_qty) || 0) + delta)
+    setDraft(next > 0 ? String(next) : '')
+    save(String(next))
+  }
+
+  const stockQty  = parseFloat(item.stock_qty) || 0
+  const yieldMin  = parseFloat(item.yield_min)
+  const yieldMax  = parseFloat(item.yield_max)
+  const hasStock  = stockQty > 0 && yieldMin > 0
+  const srvMin    = hasStock ? stockQty * yieldMin : 0
+  const srvMax    = hasStock && yieldMax > yieldMin ? stockQty * yieldMax : srvMin
+
+  return (
+    <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 group">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
+        <p className="text-xs text-gray-400">{item.serving_unit} · yield {item.yield_min}{parseFloat(item.yield_max) > yieldMin ? `–${item.yield_max}` : ''}/{item.purchase_unit}</p>
+      </div>
+
+      {/* Derived serving units available */}
+      <div className="w-44 shrink-0 text-right">
+        {hasStock ? (
+          <div>
+            <p className="text-sm font-bold text-brand">
+              {srvMin === srvMax
+                ? srvMin % 1 === 0 ? srvMin.toFixed(0) : srvMin.toFixed(1)
+                : `${srvMin % 1 === 0 ? srvMin.toFixed(0) : srvMin.toFixed(1)}–${srvMax % 1 === 0 ? srvMax.toFixed(0) : srvMax.toFixed(1)}`}
+              {' '}{item.serving_unit}
+            </p>
+            <p className="text-xs text-gray-400">available</p>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-300">— set stock</p>
+        )}
+      </div>
+
+      {/* Stock input */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={() => adjust(-1)} disabled={saving || stockQty <= 0}
+          className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-sm font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 transition-colors">−</button>
+        <input
+          ref={inputRef}
+          type="number" min="0" step="any" value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={e => { if (e.key === 'Enter') { commitDraft(); inputRef.current?.blur() } }}
+          placeholder="0"
+          className="w-16 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold text-gray-800 focus:outline-none focus:border-brand"
+        />
+        <button onClick={() => adjust(1)} disabled={saving}
+          className="w-7 h-7 rounded-lg bg-brand text-white text-sm font-bold flex items-center justify-center hover:bg-brand-dark disabled:opacity-30 transition-colors">+</button>
+        <span className="text-xs text-gray-400 w-7 ml-0.5">{item.purchase_unit}</span>
+      </div>
+    </div>
+  )
+}
+
+function RawStockTab() {
+  const [materials, setMaterials] = useState<RawMaterial[]>([])
+  const [loading, setLoading]     = useState(true)
+
+  const load = useCallback(async () => {
+    setMaterials(await api.getRawMaterials())
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSaved = (id: number, stock_qty: string) => {
+    setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock_qty } : m))
+  }
+
+  if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
+
+  if (materials.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-400 text-sm">
+        No ingredients yet. Add ingredients in the <strong className="text-gray-600">Costing</strong> tab first.
+      </div>
+    )
+  }
+
+  const stocked  = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
+  const noStock  = materials.length - stocked
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
+          <p className="text-2xl font-bold text-gray-800">{stocked}</p>
+          <p className="text-xs text-gray-400 mt-0.5">Stocked</p>
+        </div>
+        <div className={`rounded-2xl border shadow-sm p-4 text-center ${noStock > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
+          <p className={`text-2xl font-bold ${noStock > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{noStock}</p>
+          <p className={`text-xs mt-0.5 ${noStock > 0 ? 'text-amber-500' : 'text-gray-400'}`}>No Stock Set</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-4 px-5 py-3 bg-gray-50 border-b border-gray-100">
+          <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
+          <span className="w-44 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Serving Units Available</span>
+          <span className="w-32 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Stock on Hand</span>
+        </div>
+        <div className="px-5">
+          {materials.map(m => <RawStockRow key={m.id} item={m} onSaved={handleSaved} />)}
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Serving units are derived from yield settings in the Costing tab. Stock entered here feeds into the Recipes tab yield estimate.
+      </p>
+    </div>
+  )
+}
+
 // ─── Costing tab ──────────────────────────────────────────────────────────────
 
 type RawForm = {
@@ -693,7 +845,7 @@ function RecipesTab() {
   return (
     <div className="space-y-5">
 
-      {/* Product selector */}
+      {/* Product selector — ✓ suffix shows items with a recipe already */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Menu Item</label>
         <select
@@ -723,12 +875,12 @@ function RecipesTab() {
                   : `${Math.floor(yld.min)}–${Math.floor(yld.max)}`}
               </p>
               <p className="text-xs text-orange-400 mt-2">
-                Limited by bottleneck ingredient · Update stock in the Costing tab to refresh
+                Limited by bottleneck ingredient · Update stock in the Raw Stock tab to refresh
               </p>
             </div>
           ) : ingredients.length > 0 ? (
             <div className="bg-amber-50 border border-amber-100 rounded-2xl px-6 py-4">
-              <p className="text-sm text-amber-600 font-medium">Some ingredients have no stock set — go to the Costing tab and enter stock on hand.</p>
+              <p className="text-sm text-amber-600 font-medium">Some ingredients have no stock set — go to the Raw Stock tab and enter quantities on hand.</p>
             </div>
           ) : null}
 
@@ -831,12 +983,13 @@ function RecipesTab() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'stock' | 'costing' | 'recipes'
+type Tab = 'stock' | 'raw_stock' | 'costing' | 'recipes'
 
 const TAB_LABELS: Record<Tab, string> = {
-  stock: 'Stock',
-  costing: 'Costing',
-  recipes: 'Recipes',
+  stock:     'Stock',
+  raw_stock: 'Raw Stock',
+  costing:   'Costing',
+  recipes:   'Recipes',
 }
 
 export default function InventoryPage() {
@@ -856,9 +1009,10 @@ export default function InventoryPage() {
   }
 
   const subtitle: Record<Tab, string> = {
-    stock:   'Track stock levels for your menu items',
-    costing: 'Track raw ingredient costs and yield',
-    recipes: 'Link ingredients to menu items and estimate serving yield',
+    stock:     'Track stock levels for your menu items',
+    raw_stock: 'Set ingredient quantities on hand — auto-calculates serving units available',
+    costing:   'Track raw ingredient costs and yield',
+    recipes:   'Link ingredients to menu items and estimate serving yield',
   }
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
@@ -872,11 +1026,11 @@ export default function InventoryPage() {
         </div>
 
         <div className="flex rounded-xl overflow-hidden border border-gray-200">
-          {(['stock', 'costing', 'recipes'] as Tab[]).map(t => (
+          {(['stock', 'raw_stock', 'costing', 'recipes'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-5 py-2 text-sm font-semibold transition-colors
+              className={`px-4 py-2 text-sm font-semibold transition-colors border-r border-gray-200 last:border-r-0
                 ${tab === t ? 'bg-brand text-white' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               {TAB_LABELS[t]}
@@ -885,9 +1039,10 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {tab === 'stock'   && <StockTab products={products} onSaved={handleSaved} />}
-      {tab === 'costing' && <CostingTab />}
-      {tab === 'recipes' && <RecipesTab />}
+      {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} />}
+      {tab === 'raw_stock' && <RawStockTab />}
+      {tab === 'costing'   && <CostingTab />}
+      {tab === 'recipes'   && <RecipesTab />}
     </div>
   )
 }
