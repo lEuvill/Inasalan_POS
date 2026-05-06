@@ -22,6 +22,7 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 type Preset = 'today' | 'yesterday' | '7d' | '30d' | 'this_month' | 'last_month' | '3m' | '1y' | 'custom'
 type TopBy = 'revenue' | 'qty'
+type CatBy = 'revenue' | 'qty' | 'orders'
 type Bucket = 'hour' | 'day' | 'week' | 'month'
 
 const PRESETS: { key: Preset; label: string }[] = [
@@ -150,16 +151,22 @@ function buildTopProducts(txns: Transaction[], by: TopBy, limit = 10) {
 
 function buildCategoryData(txns: Transaction[], products: Product[]) {
   const catMap = new Map(products.map(p => [p.id, p.category || 'Uncategorized']))
-  const map = new Map<string, number>()
+  const map = new Map<string, { revenue: number; qty: number; orders: number }>()
   for (const t of txns) {
+    const catsInTxn = new Set<string>()
     for (const item of t.order_detail?.items_json ?? []) {
       const cat = catMap.get(item.productId) ?? 'Other'
-      map.set(cat, (map.get(cat) ?? 0) + item.price * item.quantity)
+      if (!map.has(cat)) map.set(cat, { revenue: 0, qty: 0, orders: 0 })
+      const cur = map.get(cat)!
+      cur.revenue += item.price * item.quantity
+      cur.qty += item.quantity
+      catsInTxn.add(cat)
     }
+    for (const cat of catsInTxn) map.get(cat)!.orders++
   }
   return [...map.entries()]
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.revenue - a.revenue)
 }
 
 function buildOrderTypeData(txns: Transaction[]) {
@@ -336,6 +343,7 @@ export default function AnalyticsPage() {
   const [customStart, setCustomStart]   = useState('')
   const [customEnd, setCustomEnd]       = useState('')
   const [topBy, setTopBy]               = useState<TopBy>('revenue')
+  const [catBy, setCatBy]               = useState<CatBy>('revenue')
 
   useEffect(() => {
     Promise.all([api.getTransactions(), api.getProducts()]).then(([txns, prods]) => {
@@ -557,50 +565,80 @@ export default function AnalyticsPage() {
 
         {/* Revenue by Category */}
         <Card>
-          <CardHeader title="Revenue by Category" />
+          <CardHeader
+            title="Category Breakdown"
+            action={
+              <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                {(['revenue', 'qty', 'orders'] as CatBy[]).map(k => (
+                  <button
+                    key={k}
+                    onClick={() => setCatBy(k)}
+                    className={`px-3 py-1 text-xs font-semibold transition-colors
+                      ${catBy === k ? 'bg-brand text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+                  >
+                    {k === 'revenue' ? 'Revenue' : k === 'qty' ? 'Qty' : 'Orders'}
+                  </button>
+                ))}
+              </div>
+            }
+          />
           <div className="px-6 pb-6">
-            {categoryData.length === 0 ? <Empty /> : (
-              <div className="flex items-center gap-5">
-                <div className="shrink-0">
-                  <ResponsiveContainer width={180} height={180}>
-                    <PieChart>
-                      <Pie
-                        data={categoryData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={82}
-                        paddingAngle={2}
-                        strokeWidth={0}
-                      >
-                        {categoryData.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(v: unknown) => [fmtPeso(v as number), '']}
-                        contentStyle={{ borderRadius: 12, border: '1px solid #F3F4F6' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex-1 space-y-2.5 min-w-0">
-                  {categoryData.map((d, i) => {
-                    const total = categoryData.reduce((s, x) => s + x.value, 0)
-                    return (
+            {categoryData.length === 0 ? <Empty /> : (() => {
+              const catTotal = categoryData.reduce((s, x) => s + x[catBy], 0)
+              return (
+                <div className="flex items-center gap-5">
+                  <div className="shrink-0">
+                    <ResponsiveContainer width={180} height={180}>
+                      <PieChart>
+                        <Pie
+                          data={categoryData}
+                          dataKey={catBy}
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={82}
+                          paddingAngle={2}
+                          strokeWidth={0}
+                        >
+                          {categoryData.map((_, i) => (
+                            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v: unknown) =>
+                            catBy === 'revenue'
+                              ? [fmtPeso(v as number), '']
+                              : catBy === 'qty'
+                              ? [`${v} items`, '']
+                              : [`${v} orders`, '']
+                          }
+                          contentStyle={{ borderRadius: 12, border: '1px solid #F3F4F6' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex-1 space-y-2.5 min-w-0">
+                    {categoryData.map((d, i) => (
                       <div key={d.name} className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                         <span className="text-xs text-gray-600 flex-1 truncate">{d.name}</span>
-                        <span className="text-[10px] text-gray-400 shrink-0">{total > 0 ? ((d.value / total) * 100).toFixed(0) : 0}%</span>
-                        <span className="text-xs font-semibold text-gray-700 shrink-0">{fmtPeso(d.value)}</span>
+                        <span className="text-[10px] text-gray-400 shrink-0">
+                          {catTotal > 0 ? ((d[catBy] / catTotal) * 100).toFixed(0) : 0}%
+                        </span>
+                        <span className="text-xs font-semibold text-gray-700 shrink-0">
+                          {catBy === 'revenue'
+                            ? fmtPeso(d.revenue)
+                            : catBy === 'qty'
+                            ? `${d.qty} items`
+                            : `${d.orders} orders`}
+                        </span>
                       </div>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         </Card>
       </div>
