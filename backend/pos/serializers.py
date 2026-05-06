@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, Order, Transaction, Table
+from .models import Product, Order, Transaction, Table, RawMaterial
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -34,4 +34,10 @@ class OrderSerializer(serializers.ModelSerializer):
 class TableSerializer(serializers.ModelSerializer):
     class Meta:
         model = Table
+        fields = '__all__'
+
+
+class RawMaterialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RawMaterial
         fields = '__all__'

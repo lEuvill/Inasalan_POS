@@ -69,6 +69,19 @@ export type Table = {
   is_active: boolean
 }
 
+export type RawMaterial = {
+  id: number
+  name: string
+  purchase_unit: string
+  batch_qty: string
+  batch_price: string
+  serving_unit: string
+  yield_min: string
+  yield_max: string
+  notes: string
+  updated_at: string
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -119,4 +132,13 @@ export const api = {
     request<Table>(`/api/tables/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteTable: (id: number) =>
     request<void>(`/api/tables/${id}/`, { method: 'DELETE' }),
+
+  // Raw Materials
+  getRawMaterials: () => request<RawMaterial[]>('/api/raw-materials/'),
+  createRawMaterial: (data: Omit<RawMaterial, 'id' | 'updated_at'>) =>
+    request<RawMaterial>('/api/raw-materials/', { method: 'POST', body: JSON.stringify(data) }),
+  updateRawMaterial: (id: number, data: Partial<Omit<RawMaterial, 'id' | 'updated_at'>>) =>
+    request<RawMaterial>(`/api/raw-materials/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRawMaterial: (id: number) =>
+    request<void>(`/api/raw-materials/${id}/`, { method: 'DELETE' }),
 }

@@ -8,8 +8,8 @@ from rest_framework.views import APIView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .models import Product, Order, Transaction, Table
-from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer, TableSerializer
+from .models import Product, Order, Transaction, Table, RawMaterial
+from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer, TableSerializer, RawMaterialSerializer
 
 _channel_layer = get_channel_layer()
 
@@ -92,6 +92,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class TableViewSet(viewsets.ModelViewSet):
     queryset = Table.objects.all()
     serializer_class = TableSerializer
+
+
+class RawMaterialViewSet(viewsets.ModelViewSet):
+    queryset = RawMaterial.objects.all()
+    serializer_class = RawMaterialSerializer
 
 
 # ── Sync endpoints ────────────────────────────────────────────────────────────
