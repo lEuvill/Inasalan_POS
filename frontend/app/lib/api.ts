@@ -132,7 +132,7 @@ export const api = {
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   voidOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status: 'VOIDED' }) }),
-  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number }) =>
+  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod }) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Transactions

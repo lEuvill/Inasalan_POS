@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { api, Order, Product, OrderItem, ProductVariation } from '@/app/lib/api'
+import { api, Order, Product, OrderItem, ProductVariation, PaymentMethod } from '@/app/lib/api'
 import { VariationPicker } from '@/app/components/VariationPicker'
 
 export function EditOrderModal({
@@ -16,6 +16,7 @@ export function EditOrderModal({
   const [order, setOrder] = useState<Order | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<OrderItem[]>([])
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -25,6 +26,7 @@ export function EditOrderModal({
     Promise.all([api.getOrder(orderId), api.getMenu()]).then(([ord, prods]) => {
       setOrder(ord)
       setCart(ord.items_json)
+      setPaymentMethod(ord.payment_method)
       setProducts(prods)
       setLoading(false)
     })
@@ -81,7 +83,9 @@ export function EditOrderModal({
     if (!order) return
     setSaving(true)
     try {
-      const updated = await api.patchOrder(order.id, { items_json: cart, total })
+      const patchData: Parameters<typeof api.patchOrder>[1] = { items_json: cart, total }
+      if (paymentMethod) patchData.payment_method = paymentMethod as PaymentMethod
+      const updated = await api.patchOrder(order.id, patchData)
       // If completed, also update the linked transaction total
       if (updated.transaction) {
         await api.patchTransaction(updated.transaction.id, { total })
@@ -216,6 +220,23 @@ export function EditOrderModal({
                 <div className="flex justify-between font-bold text-gray-800">
                   <span>Total</span>
                   <span className="text-brand text-lg">₱{total.toFixed(2)}</span>
+                </div>
+                {/* Payment method toggle */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPaymentMethod('CASH')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors
+                      ${paymentMethod === 'CASH'
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : 'bg-white border-gray-200 text-gray-400 hover:border-green-400'}`}
+                  >CASH</button>
+                  <button
+                    onClick={() => setPaymentMethod('GCASH')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors
+                      ${paymentMethod === 'GCASH'
+                        ? 'bg-sky-500 border-sky-500 text-white'
+                        : 'bg-white border-gray-200 text-gray-400 hover:border-sky-400'}`}
+                  >GCASH</button>
                 </div>
                 <button
                   onClick={save}
