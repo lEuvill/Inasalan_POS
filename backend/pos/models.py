@@ -95,13 +95,15 @@ class ProductIngredient(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='recipe_ingredients')
     raw_material = models.ForeignKey(RawMaterial, on_delete=models.CASCADE, related_name='used_in')
     qty_per_serving = models.DecimalField(max_digits=10, decimal_places=3)
+    variation_name = models.CharField(max_length=100, blank=True, default='')
 
     class Meta:
         ordering = ['raw_material__name']
-        unique_together = [('product', 'raw_material')]
+        unique_together = [('product', 'raw_material', 'variation_name')]
 
     def __str__(self):
-        return f'{self.raw_material.name} in {self.product.name}'
+        label = f'{self.product.name} - {self.variation_name}' if self.variation_name else self.product.name
+        return f'{self.raw_material.name} in {label}'
 
 
 class Transaction(models.Model):

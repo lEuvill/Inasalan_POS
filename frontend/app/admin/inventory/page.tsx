@@ -907,16 +907,19 @@ function IngredientRow({
   )
 }
 
+// A "recipe entry" is either a plain product (variationName='') or one variation of a product.
+type RecipeEntry = { productId: number; productName: string; variationName: string; category: string }
+
 function RecipesTab() {
-  const [products, setProducts]         = useState<Product[]>([])
-  const [materials, setMaterials]       = useState<RawMaterial[]>([])
-  const [allIngredients, setAll]        = useState<ProductIngredient[]>([])
-  const [selectedId, setSelectedId]     = useState<number | null>(null)
-  const [loading, setLoading]           = useState(true)
-  const [adding, setAdding]             = useState(false)
-  const [newMatId, setNewMatId]         = useState('')
-  const [newQty, setNewQty]             = useState('')
-  const [saving, setSaving]             = useState(false)
+  const [products, setProducts]     = useState<Product[]>([])
+  const [materials, setMaterials]   = useState<RawMaterial[]>([])
+  const [allIngredients, setAll]    = useState<ProductIngredient[]>([])
+  const [selectedKey, setSelectedKey] = useState('')   // "productId__variationName"
+  const [loading, setLoading]       = useState(true)
+  const [adding, setAdding]         = useState(false)
+  const [newMatId, setNewMatId]     = useState('')
+  const [newQty, setNewQty]         = useState('')
+  const [saving, setSaving]         = useState(false)
 
   const load = useCallback(async () => {
     const [p, m, i] = await Promise.all([
@@ -932,21 +935,49 @@ function RecipesTab() {
 
   useEffect(() => { load() }, [load])
 
-  const selectedProduct   = selectedId ? products.find(p => p.id === selectedId) : null
-  const ingredients       = allIngredients.filter(i => i.product === selectedId)
-  const linkedIds         = new Set(ingredients.map(i => i.raw_material))
+  // Build flat list: one entry per product (if no variations) or per variation
+  const entries: RecipeEntry[] = products.flatMap(p =>
+    p.variations.length > 0
+      ? p.variations.map(v => ({
+          productId: p.id,
+          productName: p.name,
+          variationName: v.name,
+          category: p.category,
+        }))
+      : [{ productId: p.id, productName: p.name, variationName: '', category: p.category }]
+  )
+
+  const parseKey = (key: string) => {
+    const sep = key.indexOf('__')
+    if (sep < 0) return { productId: null, variationName: '' }
+    return { productId: parseInt(key.slice(0, sep)), variationName: key.slice(sep + 2) }
+  }
+  const makeKey = (productId: number, variationName: string) => `${productId}__${variationName}`
+
+  const { productId: selectedProductId, variationName: selectedVariationName } = parseKey(selectedKey)
+  const selectedProduct = selectedProductId ? products.find(p => p.id === selectedProductId) : null
+  const selectedEntry   = selectedKey ? entries.find(e => makeKey(e.productId, e.variationName) === selectedKey) : null
+
+  const ingredients = allIngredients.filter(
+    i => i.product === selectedProductId && (i.variation_name ?? '') === selectedVariationName
+  )
+  const linkedIds          = new Set(ingredients.map(i => i.raw_material))
   const availableMaterials = materials.filter(m => !linkedIds.has(m.id))
-  const yld               = productYield(ingredients)
-  const selectedMaterial  = newMatId ? materials.find(m => m.id === parseInt(newMatId)) : null
+  const yld                = productYield(ingredients)
+  const selectedMaterial   = newMatId ? materials.find(m => m.id === parseInt(newMatId)) : null
+
+  const hasRecipe = (e: RecipeEntry) =>
+    allIngredients.some(i => i.product === e.productId && (i.variation_name ?? '') === e.variationName)
 
   const handleAdd = async () => {
-    if (!selectedId || !newMatId || !newQty) return
+    if (!selectedProductId || !newMatId || !newQty) return
     setSaving(true)
     try {
       const created = await api.createProductIngredient({
-        product: selectedId,
+        product: selectedProductId,
         raw_material: parseInt(newMatId),
         qty_per_serving: newQty,
+        variation_name: selectedVariationName,
       })
       setAll(prev => [...prev, created])
       setNewMatId('')
@@ -975,28 +1006,49 @@ function RecipesTab() {
     )
   }
 
+  // Group entries by category for the dropdown
+  const byCategory: Record<string, RecipeEntry[]> = {}
+  for (const e of entries) {
+    const cat = e.category || 'Uncategorized'
+    if (!byCategory[cat]) byCategory[cat] = []
+    byCategory[cat].push(e)
+  }
+
+  const displayName = selectedEntry
+    ? selectedEntry.variationName
+      ? `${selectedEntry.productName} — ${selectedEntry.variationName}`
+      : selectedEntry.productName
+    : ''
+
   return (
     <div className="space-y-5">
 
-      {/* Product selector — ✓ suffix shows items with a recipe already */}
+      {/* Entry selector */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Menu Item</label>
+        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Menu Item / Variation</label>
         <select
-          value={selectedId ?? ''}
-          onChange={e => { setSelectedId(e.target.value ? parseInt(e.target.value) : null); setAdding(false) }}
+          value={selectedKey}
+          onChange={e => { setSelectedKey(e.target.value); setAdding(false) }}
           className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:border-brand"
         >
-          <option value="">— Select a menu item to view or edit its recipe —</option>
-          {products.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.name}{p.category ? ` · ${p.category}` : ''}
-              {allIngredients.some(i => i.product === p.id) ? ' ✓' : ''}
-            </option>
+          <option value="">— Select a menu item or variation —</option>
+          {Object.entries(byCategory).map(([cat, catEntries]) => (
+            <optgroup key={cat} label={cat}>
+              {catEntries.map(e => {
+                const key = makeKey(e.productId, e.variationName)
+                const label = e.variationName ? `${e.productName} — ${e.variationName}` : e.productName
+                return (
+                  <option key={key} value={key}>
+                    {label}{hasRecipe(e) ? ' ✓' : ''}
+                  </option>
+                )
+              })}
+            </optgroup>
           ))}
         </select>
       </div>
 
-      {selectedProduct && (
+      {selectedEntry && selectedProduct && (
         <>
           {/* Yield summary */}
           {yld ? (
@@ -1021,7 +1073,7 @@ function RecipesTab() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
-                <h3 className="text-sm font-bold text-gray-800">{selectedProduct.name}</h3>
+                <h3 className="text-sm font-bold text-gray-800">{displayName}</h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {ingredients.length === 0
                     ? 'No ingredients linked yet'
@@ -1029,10 +1081,7 @@ function RecipesTab() {
                 </p>
               </div>
               {availableMaterials.length > 0 && (
-                <button
-                  onClick={() => setAdding(true)}
-                  className="text-sm font-semibold text-brand hover:underline"
-                >
+                <button onClick={() => setAdding(true)} className="text-sm font-semibold text-brand hover:underline">
                   + Link Ingredient
                 </button>
               )}

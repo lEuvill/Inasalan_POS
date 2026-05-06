@@ -89,6 +89,7 @@ export type ProductIngredient = {
   product: number
   raw_material: number
   qty_per_serving: string
+  variation_name: string
   raw_material_name: string
   serving_unit: string
   purchase_unit: string
@@ -159,7 +160,7 @@ export const api = {
 
   // Product Ingredients (Recipes)
   getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),
-  createProductIngredient: (data: { product: number; raw_material: number; qty_per_serving: string }) =>
+  createProductIngredient: (data: { product: number; raw_material: number; qty_per_serving: string; variation_name?: string }) =>
     request<ProductIngredient>('/api/product-ingredients/', { method: 'POST', body: JSON.stringify(data) }),
   updateProductIngredient: (id: number, data: { qty_per_serving: string }) =>
     request<ProductIngredient>(`/api/product-ingredients/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
