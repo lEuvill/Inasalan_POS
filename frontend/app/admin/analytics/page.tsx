@@ -132,7 +132,7 @@ function buildTimeSeries(txns: Transaction[], start: Date, end: Date) {
   return [...map.entries()].map(([label, revenue]) => ({ label, revenue }))
 }
 
-function buildTopProducts(txns: Transaction[], by: TopBy, limit = 10) {
+function buildTopProducts(txns: Transaction[], by: TopBy, limit?: number) {
   const map = new Map<string, { qty: number; revenue: number }>()
   for (const t of txns) {
     for (const item of t.order_detail?.items_json ?? []) {
@@ -143,10 +143,10 @@ function buildTopProducts(txns: Transaction[], by: TopBy, limit = 10) {
       map.set(item.name, cur)
     }
   }
-  return [...map.entries()]
+  const sorted = [...map.entries()]
     .map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b[by] - a[by])
-    .slice(0, limit)
+  return limit !== undefined ? sorted.slice(0, limit) : sorted
 }
 
 function buildCategoryData(txns: Transaction[], products: Product[]) {
@@ -344,6 +344,7 @@ export default function AnalyticsPage() {
   const [customEnd, setCustomEnd]       = useState('')
   const [topBy, setTopBy]               = useState<TopBy>('revenue')
   const [catBy, setCatBy]               = useState<CatBy>('revenue')
+  const [topShowAll, setTopShowAll]     = useState(false)
 
   useEffect(() => {
     Promise.all([api.getTransactions(), api.getProducts()]).then(([txns, prods]) => {
@@ -371,7 +372,8 @@ export default function AnalyticsPage() {
   const prevAov     = prevFiltered.length ? prevRevenue / prevFiltered.length : 0
 
   const timeSeries   = useMemo(() => buildTimeSeries(filtered, start, end),      [filtered, start, end])
-  const topProducts  = useMemo(() => buildTopProducts(filtered, topBy),          [filtered, topBy])
+  const topProducts  = useMemo(() => buildTopProducts(filtered, topBy, 10),      [filtered, topBy])
+  const allProducts  = useMemo(() => buildTopProducts(filtered, topBy),          [filtered, topBy])
   const topItem      = useMemo(() => buildTopProducts(filtered, 'qty', 1)[0],    [filtered])
   const categoryData = useMemo(() => buildCategoryData(filtered, products),      [filtered, products])
   const orderTypeData = useMemo(() => buildOrderTypeData(filtered),              [filtered])
@@ -508,59 +510,143 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
         {/* Top Products */}
-        <Card>
+        <Card className={topShowAll ? 'xl:col-span-2' : ''}>
           <CardHeader
             title="Top Products"
             action={
-              <div className="flex rounded-lg overflow-hidden border border-gray-200">
-                {(['revenue', 'qty'] as TopBy[]).map(k => (
-                  <button
-                    key={k}
-                    onClick={() => setTopBy(k)}
-                    className={`px-3 py-1 text-xs font-semibold transition-colors
-                      ${topBy === k ? 'bg-brand text-white' : 'text-gray-400 hover:bg-gray-50'}`}
-                  >
-                    {k === 'revenue' ? 'Revenue' : 'Qty'}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                  {(['revenue', 'qty'] as TopBy[]).map(k => (
+                    <button
+                      key={k}
+                      onClick={() => setTopBy(k)}
+                      className={`px-3 py-1 text-xs font-semibold transition-colors
+                        ${topBy === k ? 'bg-brand text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+                    >
+                      {k === 'revenue' ? 'Revenue' : 'Qty'}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setTopShowAll(v => !v)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors
+                    ${topShowAll
+                      ? 'bg-gray-800 text-white border-gray-800'
+                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {topShowAll ? 'Top 10' : 'Show All'}
+                </button>
               </div>
             }
           />
-          <div className="px-4 pb-5">
-            {topProducts.length === 0 ? <Empty /> : (
-              <ResponsiveContainer width="100%" height={Math.max(topProducts.length * 38 + 10, 180)}>
-                <BarChart
-                  layout="vertical"
-                  data={topProducts}
-                  margin={{ top: 0, right: 12, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tickFormatter={topBy === 'revenue' ? fmtShort : (v: number) => String(v)}
-                    tick={{ fontSize: 11, fill: '#9CA3AF' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={140}
-                    tick={{ fontSize: 11, fill: '#6B7280' }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v: string) => v.length > 22 ? v.slice(0, 20) + '…' : v}
-                  />
-                  <Tooltip
-                    formatter={(v: unknown) => [topBy === 'revenue' ? fmtPeso(v as number) : `${v} sold`, '']}
-                    labelStyle={{ fontSize: 12, fontWeight: 600, color: '#374151' }}
-                    contentStyle={{ borderRadius: 12, border: '1px solid #F3F4F6', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}
-                  />
-                  <Bar dataKey={topBy} fill={BRAND} radius={[0, 4, 4, 0]} maxBarSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+
+          {topShowAll ? (
+            /* ── Detailed all-products table ── */
+            <div className="px-4 pb-5">
+              {allProducts.length === 0 ? <Empty /> : (() => {
+                const totalRevenue = allProducts.reduce((s, p) => s + p.revenue, 0)
+                const totalQty     = allProducts.reduce((s, p) => s + p.qty, 0)
+                return (
+                  <div className="overflow-auto rounded-xl border border-gray-100">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 w-10">#</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400">Product</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Qty Sold</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Revenue</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 w-28">% of Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {allProducts.map((p, i) => {
+                          const revPct = totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0
+                          const qtyPct = totalQty     > 0 ? (p.qty     / totalQty)     * 100 : 0
+                          const pct    = topBy === 'revenue' ? revPct : qtyPct
+                          const barW   = Math.max(pct, 1)
+                          return (
+                            <tr key={p.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                              <td className="px-4 py-2.5 text-xs text-gray-300 font-semibold tabular-nums">{i + 1}</td>
+                              <td className="px-4 py-2.5">
+                                <span className="text-xs font-medium text-gray-700">{p.name}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <span className={`text-xs font-semibold tabular-nums ${topBy === 'qty' ? 'text-brand' : 'text-gray-600'}`}>
+                                  {p.qty.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                <span className={`text-xs font-semibold tabular-nums ${topBy === 'revenue' ? 'text-brand' : 'text-gray-600'}`}>
+                                  {fmtPeso(p.revenue)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-2 justify-end">
+                                  <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-brand"
+                                      style={{ width: `${barW}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[10px] text-gray-400 tabular-nums w-8 text-right">{pct.toFixed(1)}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-100 bg-gray-50">
+                          <td className="px-4 py-2.5" />
+                          <td className="px-4 py-2.5 text-xs font-bold text-gray-600">Total</td>
+                          <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-700 tabular-nums">{totalQty.toLocaleString()}</td>
+                          <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-700 tabular-nums">{fmtPeso(totalRevenue)}</td>
+                          <td className="px-4 py-2.5" />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )
+              })()}
+            </div>
+          ) : (
+            /* ── Top 10 bar chart ── */
+            <div className="px-4 pb-5">
+              {topProducts.length === 0 ? <Empty /> : (
+                <ResponsiveContainer width="100%" height={Math.max(topProducts.length * 38 + 10, 180)}>
+                  <BarChart
+                    layout="vertical"
+                    data={topProducts}
+                    margin={{ top: 0, right: 12, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tickFormatter={topBy === 'revenue' ? fmtShort : (v: number) => String(v)}
+                      tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={140}
+                      tick={{ fontSize: 11, fill: '#6B7280' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: string) => v.length > 22 ? v.slice(0, 20) + '…' : v}
+                    />
+                    <Tooltip
+                      formatter={(v: unknown) => [topBy === 'revenue' ? fmtPeso(v as number) : `${v} sold`, '']}
+                      labelStyle={{ fontSize: 12, fontWeight: 600, color: '#374151' }}
+                      contentStyle={{ borderRadius: 12, border: '1px solid #F3F4F6', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}
+                    />
+                    <Bar dataKey={topBy} fill={BRAND} radius={[0, 4, 4, 0]} maxBarSize={24} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Revenue by Category */}
