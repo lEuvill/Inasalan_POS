@@ -1443,23 +1443,51 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 export default function InventoryPage() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [tab, setTab]           = useState<Tab>('stock')
+  const [products, setProducts]   = useState<Product[]>([])
+  const [materials, setMaterials] = useState<RawMaterial[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [tab, setTab]             = useState<Tab>('stock')
 
   const load = useCallback(async () => {
-    setProducts(await api.getProducts())
+    const [prods, mats] = await Promise.all([api.getProducts(), api.getRawMaterials()])
+    setProducts(prods)
+    setMaterials(mats)
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  const handleSaved = (id: number, stock: number | null) => {
+  // Sync a plain product's stock → matching RawMaterial (if registered as ingredient) → recalc
+  const handleSaved = async (id: number, stock: number | null) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock } : p))
+    if (stock === null) return
+    const product = products.find(p => p.id === id)
+    if (!product) return
+    const mat = materials.find(m => m.name.toLowerCase() === product.name.toLowerCase())
+    if (!mat) return
+    const newQty = String(stock)
+    await api.updateRawMaterial(mat.id, { stock_qty: newQty })
+    setMaterials(prev => prev.map(m => m.id === mat.id ? { ...m, stock_qty: newQty } : m))
+    recalcProductStocks()
   }
 
-  const handleVariationSaved = (productId: number, updatedVariations: ProductVariation[]) => {
+  // Sync each variation's stock → matching RawMaterial ("Product — Variation") → recalc
+  const handleVariationSaved = async (productId: number, updatedVariations: ProductVariation[]) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, variations: updatedVariations } : p))
+    const product = products.find(p => p.id === productId)
+    if (!product) return
+    let synced = false
+    await Promise.all(updatedVariations.map(async v => {
+      if (v.stock == null) return
+      const matName = `${product.name} — ${v.name}`
+      const mat = materials.find(m => m.name.toLowerCase() === matName.toLowerCase())
+      if (!mat) return
+      synced = true
+      const newQty = String(v.stock)
+      await api.updateRawMaterial(mat.id, { stock_qty: newQty })
+      setMaterials(prev => prev.map(m => m.id === mat.id ? { ...m, stock_qty: newQty } : m))
+    }))
+    if (synced) recalcProductStocks()
   }
 
   // Called when raw stock OR recipe links change.
@@ -1468,6 +1496,7 @@ export default function InventoryPage() {
   //   – variation_name !== '' → patches the matching variation.stock inside product.variations
   const recalcProductStocks = useCallback(async () => {
     const [ings, mats] = await Promise.all([api.getProductIngredients(), api.getRawMaterials()])
+    setMaterials(mats)  // keep page-level materials in sync
 
     // Group by "productId__variationName"
     const byEntry: Record<string, ProductIngredient[]> = {}
