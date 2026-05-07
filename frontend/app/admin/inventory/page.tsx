@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { api, Product, ProductVariation, RawMaterial, ProductIngredient } from '@/app/lib/api'
 
 // ─── Stock tab ────────────────────────────────────────────────────────────────
@@ -800,12 +800,20 @@ function CostingTab() {
   )
 }
 
-// ─── Recipes tab ──────────────────────────────────────────────────────────────
+// ─── Recipes tab (ingredient-first) ──────────────────────────────────────────
+
+type MenuEntry = {
+  key: string
+  productId: number
+  productName: string
+  variationName: string
+  category: string
+}
 
 function calcIngredientYield(ing: ProductIngredient): { min: number; max: number } | null {
-  const stockQty     = parseFloat(ing.stock_qty)
-  const yieldMin     = parseFloat(ing.yield_min)
-  const yieldMax     = parseFloat(ing.yield_max)
+  const stockQty      = parseFloat(ing.stock_qty)
+  const yieldMin      = parseFloat(ing.yield_min)
+  const yieldMax      = parseFloat(ing.yield_max)
   const qtyPerServing = parseFloat(ing.qty_per_serving)
   if (!stockQty || !yieldMin || !qtyPerServing) return null
   const effectiveMax = yieldMax && yieldMax > yieldMin ? yieldMax : yieldMin
@@ -815,26 +823,23 @@ function calcIngredientYield(ing: ProductIngredient): { min: number; max: number
   }
 }
 
-function productYield(ingredients: ProductIngredient[]): { min: number; max: number } | null {
-  const yields = ingredients
-    .map(calcIngredientYield)
-    .filter((y): y is { min: number; max: number } => y !== null)
-  if (!yields.length) return null
-  return {
-    min: Math.min(...yields.map(y => y.min)),
-    max: Math.min(...yields.map(y => y.max)),
-  }
-}
-
-function IngredientRow({
+// Row in the right panel: one menu item using the selected ingredient
+function RecipeMenuRow({
   ing,
+  products,
   onDelete,
   onUpdateQty,
 }: {
   ing: ProductIngredient
+  products: Product[]
   onDelete: () => void
   onUpdateQty: (id: number, qty: string) => Promise<void>
 }) {
+  const product = products.find(p => p.id === ing.product)
+  const displayName = product
+    ? (ing.variation_name ? `${product.name} — ${ing.variation_name}` : product.name)
+    : `Product #${ing.product}`
+
   const [draft, setDraft]           = useState(ing.qty_per_serving)
   const [confirmDelete, setConfirm] = useState(false)
   const [saving, setSaving]         = useState(false)
@@ -848,17 +853,16 @@ function IngredientRow({
     try { await onUpdateQty(ing.id, draft) } finally { setSaving(false) }
   }
 
-  const yld      = calcIngredientYield(ing)
-  const stockQty = parseFloat(ing.stock_qty)
+  const yld = calcIngredientYield(ing)
 
   return (
     <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 group">
-      <div className="w-40 shrink-0">
-        <p className="text-sm font-semibold text-gray-800 truncate">{ing.raw_material_name}</p>
-        <p className="text-xs text-gray-400">{ing.serving_unit}</p>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{displayName}</p>
+        {product?.category && <p className="text-xs text-gray-400">{product.category}</p>}
       </div>
 
-      <div className="w-28 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         <input
           type="number" min="0" step="any"
           value={draft}
@@ -866,29 +870,22 @@ function IngredientRow({
           onBlur={commitDraft}
           onKeyDown={e => { if (e.key === 'Enter') commitDraft() }}
           disabled={saving}
-          className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:border-brand disabled:opacity-50"
+          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-800 text-center focus:outline-none focus:border-brand disabled:opacity-50"
         />
+        <span className="text-xs text-gray-400 whitespace-nowrap">{ing.serving_unit}/serving</span>
       </div>
 
-      <div className="w-28 shrink-0">
-        {stockQty > 0 ? (
-          <p className="text-sm font-semibold text-gray-700">{ing.stock_qty} {ing.purchase_unit}</p>
-        ) : (
-          <p className="text-xs text-amber-500 font-medium">No stock — set in Costing</p>
-        )}
-      </div>
-
-      <div className="flex-1">
+      <div className="w-32 shrink-0 text-right">
         {yld ? (
           <p className="text-sm font-bold text-brand">
             ~{Math.floor(yld.min)}{Math.floor(yld.max) !== Math.floor(yld.min) ? `–${Math.floor(yld.max)}` : ''} servings
           </p>
         ) : (
-          <p className="text-xs text-gray-300">—</p>
+          <p className="text-xs text-gray-300">no stock</p>
         )}
       </div>
 
-      <div className="w-20 flex items-center justify-end shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="w-14 flex items-center justify-end shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {confirmDelete ? (
           <div className="flex items-center gap-1">
             <button onClick={onDelete}
@@ -905,19 +902,18 @@ function IngredientRow({
   )
 }
 
-// A "recipe entry" is either a plain product (variationName='') or one variation of a product.
-type RecipeEntry = { productId: number; productName: string; variationName: string; category: string }
-
 function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
-  const [products, setProducts]     = useState<Product[]>([])
-  const [materials, setMaterials]   = useState<RawMaterial[]>([])
-  const [allIngredients, setAll]    = useState<ProductIngredient[]>([])
-  const [selectedKey, setSelectedKey] = useState('')   // "productId__variationName"
-  const [loading, setLoading]       = useState(true)
-  const [adding, setAdding]         = useState(false)
-  const [newMatId, setNewMatId]     = useState('')
-  const [newQty, setNewQty]         = useState('')
-  const [saving, setSaving]         = useState(false)
+  const [products, setProducts]   = useState<Product[]>([])
+  const [materials, setMaterials] = useState<RawMaterial[]>([])
+  const [allIngredients, setAll]  = useState<ProductIngredient[]>([])
+  const [selectedSid, setSelectedSid] = useState('')  // 'raw:id' | 'product:id'
+  const [search, setSearch]       = useState('')
+  const [loading, setLoading]     = useState(true)
+  const [adding, setAdding]       = useState(false)
+  const [newMenuKey, setNewMenuKey] = useState('')
+  const [newQty, setNewQty]       = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [registering, setRegistering] = useState(false)
 
   const load = useCallback(async () => {
     const [p, m, i] = await Promise.all([
@@ -933,52 +929,90 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
 
   useEffect(() => { load() }, [load])
 
-  // Build flat list: one entry per product (if no variations) or per variation
-  const entries: RecipeEntry[] = products.flatMap(p =>
-    p.variations.length > 0
-      ? p.variations.map(v => ({
-          productId: p.id,
-          productName: p.name,
-          variationName: v.name,
-          category: p.category,
-        }))
-      : [{ productId: p.id, productName: p.name, variationName: '', category: p.category }]
+  // ── Parse selected source ─────────────────────────────────────────────────
+  const parsedSid = useMemo(() => {
+    if (!selectedSid) return null
+    if (selectedSid.startsWith('raw:'))     return { type: 'raw'     as const, id: parseInt(selectedSid.slice(4)) }
+    if (selectedSid.startsWith('product:')) return { type: 'product' as const, id: parseInt(selectedSid.slice(8)) }
+    return null
+  }, [selectedSid])
+
+  const selectedRaw = useMemo((): RawMaterial | null => {
+    if (!parsedSid) return null
+    if (parsedSid.type === 'raw') return materials.find(m => m.id === parsedSid.id) ?? null
+    // product-as-ingredient: find a matching raw material by name
+    const prod = products.find(p => p.id === parsedSid.id)
+    if (!prod) return null
+    return materials.find(m => m.name.toLowerCase() === prod.name.toLowerCase()) ?? null
+  }, [parsedSid, materials, products])
+
+  const selectedProduct = useMemo((): Product | null => {
+    if (!parsedSid || parsedSid.type !== 'product') return null
+    return products.find(p => p.id === parsedSid.id) ?? null
+  }, [parsedSid, products])
+
+  // ── Flat menu entries (product + variation combos) ────────────────────────
+  const allMenuEntries = useMemo((): MenuEntry[] =>
+    products.flatMap(p =>
+      p.variations.length > 0
+        ? p.variations.map(v => ({
+            key: `${p.id}__${v.name}`,
+            productId: p.id,
+            productName: p.name,
+            variationName: v.name,
+            category: p.category,
+          }))
+        : [{ key: `${p.id}__`, productId: p.id, productName: p.name, variationName: '', category: p.category }]
+    ), [products])
+
+  // ── ProductIngredient records for the selected raw material ───────────────
+  const linkedIngredients = useMemo(
+    () => allIngredients.filter(i => i.raw_material === selectedRaw?.id),
+    [allIngredients, selectedRaw]
   )
 
-  const parseKey = (key: string) => {
-    const sep = key.indexOf('__')
-    if (sep < 0) return { productId: null, variationName: '' }
-    return { productId: parseInt(key.slice(0, sep)), variationName: key.slice(sep + 2) }
-  }
-  const makeKey = (productId: number, variationName: string) => `${productId}__${variationName}`
-
-  const { productId: selectedProductId, variationName: selectedVariationName } = parseKey(selectedKey)
-  const selectedProduct = selectedProductId ? products.find(p => p.id === selectedProductId) : null
-  const selectedEntry   = selectedKey ? entries.find(e => makeKey(e.productId, e.variationName) === selectedKey) : null
-
-  const ingredients = allIngredients.filter(
-    i => i.product === selectedProductId && (i.variation_name ?? '') === selectedVariationName
+  // Menu entries not yet linked
+  const linkedKeys = useMemo(
+    () => new Set(linkedIngredients.map(i => `${i.product}__${i.variation_name ?? ''}`)),
+    [linkedIngredients]
   )
-  const linkedIds          = new Set(ingredients.map(i => i.raw_material))
-  const availableMaterials = materials.filter(m => !linkedIds.has(m.id))
-  const yld                = productYield(ingredients)
-  const selectedMaterial   = newMatId ? materials.find(m => m.id === parseInt(newMatId)) : null
+  const availableMenuEntries = useMemo(
+    () => allMenuEntries.filter(e => !linkedKeys.has(e.key)),
+    [allMenuEntries, linkedKeys]
+  )
 
-  const hasRecipe = (e: RecipeEntry) =>
-    allIngredients.some(i => i.product === e.productId && (i.variation_name ?? '') === e.variationName)
+  // Usage count per raw material (for the left panel badge)
+  const matUsage = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const ing of allIngredients) {
+      map.set(ing.raw_material, (map.get(ing.raw_material) ?? 0) + 1)
+    }
+    return map
+  }, [allIngredients])
 
+  // For each product, find a matching raw material by name
+  const productLinkedMat = useCallback(
+    (p: Product) => materials.find(m => m.name.toLowerCase() === p.name.toLowerCase()) ?? null,
+    [materials]
+  )
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleAdd = async () => {
-    if (!selectedProductId || !newMatId || !newQty) return
+    if (!selectedRaw || !newMenuKey || !newQty) return
+    const sep = newMenuKey.indexOf('__')
+    if (sep < 0) return
+    const productId    = parseInt(newMenuKey.slice(0, sep))
+    const variationName = newMenuKey.slice(sep + 2)
     setSaving(true)
     try {
       const created = await api.createProductIngredient({
-        product: selectedProductId,
-        raw_material: parseInt(newMatId),
+        product: productId,
+        raw_material: selectedRaw.id,
         qty_per_serving: newQty,
-        variation_name: selectedVariationName,
+        variation_name: variationName,
       })
       setAll(prev => [...prev, created])
-      setNewMatId('')
+      setNewMenuKey('')
       setNewQty('')
       setAdding(false)
       onRecipeChanged()
@@ -997,169 +1031,342 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     onRecipeChanged()
   }
 
+  // Register a product as a raw ingredient (creates a RawMaterial with the same name)
+  const handleRegister = async () => {
+    if (!selectedProduct) return
+    setRegistering(true)
+    try {
+      const m = await api.createRawMaterial({
+        name: selectedProduct.name,
+        purchase_unit: 'pc',
+        batch_qty: '1',
+        batch_price: selectedProduct.price ?? '0',
+        serving_unit: 'pc',
+        yield_min: '1',
+        yield_max: '1',
+        stock_qty: String(selectedProduct.stock ?? 0),
+        notes: `Linked from menu item "${selectedProduct.name}"`,
+      })
+      setMaterials(prev => [...prev, m])
+    } finally { setRegistering(false) }
+  }
+
+  // ── Search filter ─────────────────────────────────────────────────────────
+  const q = search.toLowerCase()
+  const filteredMaterials = useMemo(
+    () => materials.filter(m => m.name.toLowerCase().includes(q)),
+    [materials, q]
+  )
+  const filteredProducts = useMemo(
+    () => products.filter(p => p.name.toLowerCase().includes(q)),
+    [products, q]
+  )
+
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
-  if (materials.length === 0) {
-    return (
-      <div className="text-center py-16 text-gray-400 text-sm">
-        No ingredients yet. Add ingredients in the <strong className="text-gray-600">Costing</strong> tab first.
-      </div>
-    )
-  }
+  // ── Derived display values ────────────────────────────────────────────────
+  const stockQtyNum   = parseFloat(selectedRaw?.stock_qty ?? '0') || 0
+  const yieldMinNum   = parseFloat(selectedRaw?.yield_min ?? '0') || 0
+  const yieldMaxNum   = parseFloat(selectedRaw?.yield_max ?? '0') || 0
+  const hasYield      = stockQtyNum > 0 && yieldMinNum > 0
+  const availMin      = hasYield ? stockQtyNum * yieldMinNum : 0
+  const availMax      = hasYield && yieldMaxNum > yieldMinNum ? stockQtyNum * yieldMaxNum : availMin
 
-  // Group entries by category for the dropdown
-  const byCategory: Record<string, RecipeEntry[]> = {}
-  for (const e of entries) {
-    const cat = e.category || 'Uncategorized'
-    if (!byCategory[cat]) byCategory[cat] = []
-    byCategory[cat].push(e)
-  }
-
-  const displayName = selectedEntry
-    ? selectedEntry.variationName
-      ? `${selectedEntry.productName} — ${selectedEntry.variationName}`
-      : selectedEntry.productName
-    : ''
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5">
+    <div className="flex gap-5 min-h-[520px]">
 
-      {/* Entry selector */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Menu Item / Variation</label>
-        <select
-          value={selectedKey}
-          onChange={e => { setSelectedKey(e.target.value); setAdding(false) }}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:border-brand"
-        >
-          <option value="">— Select a menu item or variation —</option>
-          {Object.entries(byCategory).map(([cat, catEntries]) => (
-            <optgroup key={cat} label={cat}>
-              {catEntries.map(e => {
-                const key = makeKey(e.productId, e.variationName)
-                const label = e.variationName ? `${e.productName} — ${e.variationName}` : e.productName
+      {/* ── Left panel: ingredient source list ── */}
+      <div className="w-60 shrink-0 flex flex-col gap-3">
+        <input
+          type="text"
+          placeholder="Search…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-brand"
+        />
+
+        {/* Raw Ingredients */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Raw Ingredients</p>
+          </div>
+          {filteredMaterials.length === 0 ? (
+            <p className="px-4 py-5 text-xs text-gray-300 text-center">
+              {materials.length === 0 ? 'Add ingredients in the Costing tab' : 'No matches'}
+            </p>
+          ) : (
+            <div>
+              {filteredMaterials.map(m => {
+                const sid = `raw:${m.id}`
+                const count = matUsage.get(m.id) ?? 0
+                const active = selectedSid === sid
                 return (
-                  <option key={key} value={key}>
-                    {label}{hasRecipe(e) ? ' ✓' : ''}
-                  </option>
+                  <button
+                    key={m.id}
+                    onClick={() => { setSelectedSid(sid); setAdding(false) }}
+                    className={`w-full flex items-center gap-2.5 px-4 py-3 text-left border-b border-gray-50 last:border-0 transition-colors
+                      ${active ? 'bg-orange-50 border-l-[3px] border-l-brand' : 'hover:bg-gray-50'}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${active ? 'text-brand' : 'text-gray-800'}`}>{m.name}</p>
+                      <p className="text-xs text-gray-400">{m.serving_unit}</p>
+                    </div>
+                    {count > 0 && (
+                      <span className="text-[10px] font-bold text-brand bg-orange-100 rounded-full px-1.5 py-0.5 shrink-0">
+                        {count}
+                      </span>
+                    )}
+                  </button>
                 )
               })}
-            </optgroup>
-          ))}
-        </select>
+            </div>
+          )}
+        </div>
+
+        {/* Menu Items as Ingredients */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Menu as Ingredient</p>
+            <span className="text-[9px] text-gray-300 font-medium">sub-components</span>
+          </div>
+          {filteredProducts.length === 0 ? (
+            <p className="px-4 py-5 text-xs text-gray-300 text-center">No menu items</p>
+          ) : (
+            <div>
+              {filteredProducts.map(p => {
+                const sid     = `product:${p.id}`
+                const match   = productLinkedMat(p)
+                const count   = match ? (matUsage.get(match.id) ?? 0) : 0
+                const active  = selectedSid === sid
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setSelectedSid(sid); setAdding(false) }}
+                    className={`w-full flex items-center gap-2.5 px-4 py-3 text-left border-b border-gray-50 last:border-0 transition-colors
+                      ${active ? 'bg-blue-50 border-l-[3px] border-l-blue-400' : 'hover:bg-gray-50'}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${active ? 'text-blue-600' : 'text-gray-800'}`}>{p.name}</p>
+                      <p className="text-xs text-gray-400">{p.category || 'Menu item'}</p>
+                    </div>
+                    {match ? (
+                      count > 0 && (
+                        <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-1.5 py-0.5 shrink-0">
+                          {count}
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-[10px] text-gray-300 shrink-0 font-medium">unregistered</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      {selectedEntry && selectedProduct && (
-        <>
-          {/* Yield summary */}
-          {yld ? (
-            <div className="bg-orange-50 border border-orange-100 rounded-2xl px-6 py-5">
-              <p className="text-xs font-bold text-orange-500 uppercase tracking-wide mb-1">Estimated Servings from Current Stock</p>
-              <p className="text-4xl font-bold text-orange-700 leading-none">
-                {Math.floor(yld.min) === Math.floor(yld.max)
-                  ? Math.floor(yld.min)
-                  : `${Math.floor(yld.min)}–${Math.floor(yld.max)}`}
-              </p>
-              <p className="text-xs text-orange-400 mt-2">
-                Limited by bottleneck ingredient · Update stock in the Raw Stock tab to refresh
-              </p>
-            </div>
-          ) : ingredients.length > 0 ? (
-            <div className="bg-amber-50 border border-amber-100 rounded-2xl px-6 py-4">
-              <p className="text-sm text-amber-600 font-medium">Some ingredients have no stock set — go to the Raw Stock tab and enter quantities on hand.</p>
-            </div>
-          ) : null}
+      {/* ── Right panel ── */}
+      <div className="flex-1 min-w-0">
+        {!selectedSid ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-300">
+            <svg className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+            </svg>
+            <p className="text-sm">Select an ingredient to view recipe usage</p>
+          </div>
 
-          {/* Recipe card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-sm font-bold text-gray-800">{displayName}</h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {ingredients.length === 0
-                    ? 'No ingredients linked yet'
-                    : `${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''}`}
-                </p>
+        ) : parsedSid?.type === 'product' && !selectedRaw ? (
+          /* Product selected but not yet registered as ingredient */
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto">
+              <svg className="w-7 h-7 text-blue-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-base font-bold text-gray-800">{selectedProduct?.name}</p>
+              <p className="text-xs text-gray-400 mt-1.5 max-w-xs mx-auto">
+                This menu item isn&apos;t registered as an ingredient yet. Register it so other menu items can use it as a sub-component.
+              </p>
+            </div>
+            <button
+              onClick={handleRegister}
+              disabled={registering}
+              className="bg-blue-500 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-blue-600 transition-colors text-sm disabled:opacity-40"
+            >
+              {registering ? 'Registering…' : 'Register as Ingredient'}
+            </button>
+            <p className="text-[10px] text-gray-300">
+              This creates a matching entry in Costing — edit units and yield there.
+            </p>
+          </div>
+
+        ) : selectedRaw ? (
+          <div className="space-y-4">
+
+            {/* ── Ingredient summary card ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base font-bold text-gray-800">{selectedRaw.name}</h3>
+                    {parsedSid?.type === 'product' && (
+                      <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
+                        Menu item
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {stockQtyNum > 0
+                      ? `${selectedRaw.stock_qty} ${selectedRaw.purchase_unit} on hand`
+                      : 'No stock set — update in Raw Stock tab'}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-bold text-gray-800">{linkedIngredients.length}</p>
+                  <p className="text-xs text-gray-400">menu item{linkedIngredients.length !== 1 ? 's' : ''}</p>
+                </div>
               </div>
-              {availableMaterials.length > 0 && (
-                <button onClick={() => setAdding(true)} className="text-sm font-semibold text-brand hover:underline">
-                  + Link Ingredient
-                </button>
+
+              {/* Stock / yield stats */}
+              {hasYield && (
+                <div className="mt-4 pt-4 border-t border-gray-50 grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Stock on hand</p>
+                    <p className="text-sm font-bold text-gray-700 mt-0.5">{selectedRaw.stock_qty} {selectedRaw.purchase_unit}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Yield rate</p>
+                    <p className="text-sm font-bold text-gray-700 mt-0.5">
+                      {selectedRaw.yield_min}
+                      {yieldMaxNum > yieldMinNum ? `–${selectedRaw.yield_max}` : ''}
+                      {' '}{selectedRaw.serving_unit}/{selectedRaw.purchase_unit}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Serving units avail.</p>
+                    <p className="text-sm font-bold text-brand mt-0.5">
+                      {availMin === availMax
+                        ? availMin % 1 === 0 ? availMin.toFixed(0) : availMin.toFixed(1)
+                        : `${availMin % 1 === 0 ? availMin.toFixed(0) : availMin.toFixed(1)}–${availMax % 1 === 0 ? availMax.toFixed(0) : availMax.toFixed(1)}`}
+                      {' '}{selectedRaw.serving_unit}
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
 
-            {ingredients.length > 0 && (
-              <div className="px-5">
-                <div className="flex items-center gap-4 py-2 border-b border-gray-50">
-                  <span className="w-40 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
-                  <span className="w-28 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Qty / Serving</span>
-                  <span className="w-28 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Stock</span>
-                  <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Yield from stock</span>
-                  <span className="w-20" />
+            {/* ── Menu items using this ingredient ── */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <div>
+                  <h4 className="text-sm font-bold text-gray-700">Menu Items Using This Ingredient</h4>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {linkedIngredients.length === 0
+                      ? 'None linked yet'
+                      : `${linkedIngredients.length} item${linkedIngredients.length !== 1 ? 's' : ''} · qty/serving controls yield estimate`}
+                  </p>
                 </div>
-                {ingredients.map(ing => (
-                  <IngredientRow
-                    key={ing.id}
-                    ing={ing}
-                    onDelete={() => handleDelete(ing.id)}
-                    onUpdateQty={handleUpdateQty}
-                  />
-                ))}
+                {availableMenuEntries.length > 0 && !adding && (
+                  <button
+                    onClick={() => setAdding(true)}
+                    className="text-sm font-semibold text-brand hover:underline"
+                  >
+                    + Add Menu Item
+                  </button>
+                )}
               </div>
-            )}
 
-            {ingredients.length === 0 && !adding && (
-              <div className="px-5 py-10 text-center text-gray-400 text-sm">
-                Link ingredients to see how many servings your current stock can make.
-              </div>
-            )}
-
-            {adding && (
-              <div className="px-5 py-4 border-t border-gray-100 bg-gray-50">
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">Ingredient</label>
-                    <select
-                      value={newMatId}
-                      onChange={e => setNewMatId(e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand"
-                    >
-                      <option value="">— Select —</option>
-                      {availableMaterials.map(m => (
-                        <option key={m.id} value={m.id}>{m.name}</option>
-                      ))}
-                    </select>
+              {linkedIngredients.length > 0 && (
+                <div className="px-5">
+                  <div className="flex items-center gap-4 py-2 border-b border-gray-50">
+                    <span className="flex-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">Menu Item</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Qty / Serving</span>
+                    <span className="w-32 shrink-0 text-[10px] font-bold text-gray-400 uppercase tracking-wide text-right">Yield from stock</span>
+                    <span className="w-14" />
                   </div>
-                  <div className="w-40">
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">
-                      Qty per serving ({selectedMaterial?.serving_unit ?? '—'})
-                    </label>
-                    <input
-                      type="number" min="0" step="any" value={newQty}
-                      onChange={e => setNewQty(e.target.value)}
-                      placeholder="1.5"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand"
+                  {linkedIngredients.map(ing => (
+                    <RecipeMenuRow
+                      key={ing.id}
+                      ing={ing}
+                      products={products}
+                      onDelete={() => handleDelete(ing.id)}
+                      onUpdateQty={handleUpdateQty}
                     />
-                  </div>
-                  <button
-                    onClick={handleAdd}
-                    disabled={saving || !newMatId || !newQty}
-                    className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm disabled:opacity-40"
-                  >
-                    {saving ? '…' : 'Add'}
-                  </button>
-                  <button
-                    onClick={() => { setAdding(false); setNewMatId(''); setNewQty('') }}
-                    className="text-gray-400 hover:text-gray-700 text-sm py-2"
-                  >
-                    Cancel
-                  </button>
+                  ))}
                 </div>
-              </div>
-            )}
+              )}
+
+              {linkedIngredients.length === 0 && !adding && (
+                <div className="px-5 py-12 text-center">
+                  <p className="text-sm text-gray-300">No menu items linked yet.</p>
+                  <p className="text-xs text-gray-300 mt-1">Add menu items that use <span className="font-medium">{selectedRaw.name}</span> as an ingredient.</p>
+                </div>
+              )}
+
+              {adding && (
+                <div className="px-5 py-4 bg-gray-50 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 mb-3">Link a menu item to this ingredient</p>
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <label className="block text-xs font-semibold text-gray-400 mb-1">Menu Item</label>
+                      <select
+                        value={newMenuKey}
+                        onChange={e => setNewMenuKey(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand bg-white"
+                      >
+                        <option value="">— Select menu item —</option>
+                        {Object.entries(
+                          availableMenuEntries.reduce<Record<string, MenuEntry[]>>((acc, e) => {
+                            const cat = e.category || 'Uncategorized'
+                            if (!acc[cat]) acc[cat] = []
+                            acc[cat].push(e)
+                            return acc
+                          }, {})
+                        ).map(([cat, entries]) => (
+                          <optgroup key={cat} label={cat}>
+                            {entries.map(e => (
+                              <option key={e.key} value={e.key}>
+                                {e.variationName ? `${e.productName} — ${e.variationName}` : e.productName}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="w-44 shrink-0">
+                      <label className="block text-xs font-semibold text-gray-400 mb-1">
+                        Qty per serving ({selectedRaw.serving_unit})
+                      </label>
+                      <input
+                        type="number" min="0" step="any" value={newQty}
+                        onChange={e => setNewQty(e.target.value)}
+                        placeholder="1"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand"
+                      />
+                    </div>
+                    <button
+                      onClick={handleAdd}
+                      disabled={saving || !newMenuKey || !newQty}
+                      className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm disabled:opacity-40 shrink-0"
+                    >
+                      {saving ? '…' : 'Add'}
+                    </button>
+                    <button
+                      onClick={() => { setAdding(false); setNewMenuKey(''); setNewQty('') }}
+                      className="text-gray-400 hover:text-gray-700 text-sm py-2 shrink-0"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </>
-      )}
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -1285,7 +1492,7 @@ export default function InventoryPage() {
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
   return (
-    <div className="max-w-3xl">
+    <div className={tab === 'recipes' ? 'max-w-5xl' : 'max-w-3xl'}>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Inventory</h1>
