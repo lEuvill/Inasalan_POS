@@ -810,6 +810,15 @@ type MenuEntry = {
   category: string
 }
 
+// A flat entry for the left-panel "Menu as Ingredient" list
+type ProductSource = {
+  sid: string       // 'product:id__' or 'product:id__VariationName'
+  label: string     // display name (may include variation)
+  subLabel: string  // category / 'Menu item'
+  product: Product
+  variationName: string
+}
+
 function calcIngredientYield(ing: ProductIngredient): { min: number; max: number } | null {
   const stockQty      = parseFloat(ing.stock_qty)
   const yieldMin      = parseFloat(ing.yield_min)
@@ -930,26 +939,39 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
   useEffect(() => { load() }, [load])
 
   // ── Parse selected source ─────────────────────────────────────────────────
+  // sid formats:  'raw:<matId>'  |  'product:<prodId>__<variationName>'
   const parsedSid = useMemo(() => {
     if (!selectedSid) return null
-    if (selectedSid.startsWith('raw:'))     return { type: 'raw'     as const, id: parseInt(selectedSid.slice(4)) }
-    if (selectedSid.startsWith('product:')) return { type: 'product' as const, id: parseInt(selectedSid.slice(8)) }
+    if (selectedSid.startsWith('raw:')) {
+      return { type: 'raw' as const, id: parseInt(selectedSid.slice(4)), variationName: '' }
+    }
+    if (selectedSid.startsWith('product:')) {
+      const rest = selectedSid.slice(8)           // 'prodId__varName' or 'prodId__'
+      const sep  = rest.indexOf('__')
+      if (sep < 0) return { type: 'product' as const, id: parseInt(rest), variationName: '' }
+      return { type: 'product' as const, id: parseInt(rest.slice(0, sep)), variationName: rest.slice(sep + 2) }
+    }
     return null
   }, [selectedSid])
 
   const selectedRaw = useMemo((): RawMaterial | null => {
     if (!parsedSid) return null
     if (parsedSid.type === 'raw') return materials.find(m => m.id === parsedSid.id) ?? null
-    // product-as-ingredient: find a matching raw material by name
+    // product-as-ingredient: find a matching RawMaterial by display name
     const prod = products.find(p => p.id === parsedSid.id)
     if (!prod) return null
-    return materials.find(m => m.name.toLowerCase() === prod.name.toLowerCase()) ?? null
+    const targetName = parsedSid.variationName
+      ? `${prod.name} — ${parsedSid.variationName}`
+      : prod.name
+    return materials.find(m => m.name.toLowerCase() === targetName.toLowerCase()) ?? null
   }, [parsedSid, materials, products])
 
   const selectedProduct = useMemo((): Product | null => {
     if (!parsedSid || parsedSid.type !== 'product') return null
     return products.find(p => p.id === parsedSid.id) ?? null
   }, [parsedSid, products])
+
+  const selectedVariationName = parsedSid?.type === 'product' ? parsedSid.variationName : ''
 
   // ── Flat menu entries (product + variation combos) ────────────────────────
   const allMenuEntries = useMemo((): MenuEntry[] =>
@@ -990,10 +1012,31 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     return map
   }, [allIngredients])
 
-  // For each product, find a matching raw material by name
+  // For a product source, find its matching RawMaterial by display name
   const productLinkedMat = useCallback(
-    (p: Product) => materials.find(m => m.name.toLowerCase() === p.name.toLowerCase()) ?? null,
+    (label: string) => materials.find(m => m.name.toLowerCase() === label.toLowerCase()) ?? null,
     [materials]
+  )
+
+  // Flat list of product sources for the left panel — one entry per variation (or per product if no variations)
+  const productSources = useMemo((): ProductSource[] =>
+    products.flatMap(p =>
+      p.variations.length > 0
+        ? p.variations.map(v => ({
+            sid: `product:${p.id}__${v.name}`,
+            label: `${p.name} — ${v.name}`,
+            subLabel: p.category || 'Menu item',
+            product: p,
+            variationName: v.name,
+          }))
+        : [{
+            sid: `product:${p.id}__`,
+            label: p.name,
+            subLabel: p.category || 'Menu item',
+            product: p,
+            variationName: '',
+          }]
+    ), [products]
   )
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -1031,21 +1074,31 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     onRecipeChanged()
   }
 
-  // Register a product as a raw ingredient (creates a RawMaterial with the same name)
+  // Register a product (or variation) as a raw ingredient
   const handleRegister = async () => {
     if (!selectedProduct) return
+    const name = selectedVariationName
+      ? `${selectedProduct.name} — ${selectedVariationName}`
+      : selectedProduct.name
+    const variation   = selectedVariationName
+      ? selectedProduct.variations.find(v => v.name === selectedVariationName)
+      : null
+    const price = variation?.price ?? selectedProduct.price ?? '0'
+    const stock = variation?.stock ?? selectedProduct.stock
     setRegistering(true)
     try {
       const m = await api.createRawMaterial({
-        name: selectedProduct.name,
+        name,
         purchase_unit: 'pc',
         batch_qty: '1',
-        batch_price: selectedProduct.price ?? '0',
+        batch_price: price,
         serving_unit: 'pc',
         yield_min: '1',
         yield_max: '1',
-        stock_qty: String(selectedProduct.stock ?? 0),
-        notes: `Linked from menu item "${selectedProduct.name}"`,
+        stock_qty: String(stock ?? 0),
+        notes: selectedVariationName
+          ? `Linked from menu item "${selectedProduct.name}" (${selectedVariationName})`
+          : `Linked from menu item "${selectedProduct.name}"`,
       })
       setMaterials(prev => [...prev, m])
     } finally { setRegistering(false) }
@@ -1057,9 +1110,9 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     () => materials.filter(m => m.name.toLowerCase().includes(q)),
     [materials, q]
   )
-  const filteredProducts = useMemo(
-    () => products.filter(p => p.name.toLowerCase().includes(q)),
-    [products, q]
+  const filteredProductSources = useMemo(
+    () => productSources.filter(s => s.label.toLowerCase().includes(q)),
+    [productSources, q]
   )
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
@@ -1130,25 +1183,28 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Menu as Ingredient</p>
             <span className="text-[9px] text-gray-300 font-medium">sub-components</span>
           </div>
-          {filteredProducts.length === 0 ? (
+          {filteredProductSources.length === 0 ? (
             <p className="px-4 py-5 text-xs text-gray-300 text-center">No menu items</p>
           ) : (
             <div>
-              {filteredProducts.map(p => {
-                const sid     = `product:${p.id}`
-                const match   = productLinkedMat(p)
-                const count   = match ? (matUsage.get(match.id) ?? 0) : 0
-                const active  = selectedSid === sid
+              {filteredProductSources.map(s => {
+                const match  = productLinkedMat(s.label)
+                const count  = match ? (matUsage.get(match.id) ?? 0) : 0
+                const active = selectedSid === s.sid
                 return (
                   <button
-                    key={p.id}
-                    onClick={() => { setSelectedSid(sid); setAdding(false) }}
+                    key={s.sid}
+                    onClick={() => { setSelectedSid(s.sid); setAdding(false) }}
                     className={`w-full flex items-center gap-2.5 px-4 py-3 text-left border-b border-gray-50 last:border-0 transition-colors
                       ${active ? 'bg-blue-50 border-l-[3px] border-l-blue-400' : 'hover:bg-gray-50'}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${active ? 'text-blue-600' : 'text-gray-800'}`}>{p.name}</p>
-                      <p className="text-xs text-gray-400">{p.category || 'Menu item'}</p>
+                      <p className={`text-sm font-medium truncate ${active ? 'text-blue-600' : 'text-gray-800'}`}>
+                        {s.variationName ? s.variationName : s.label}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {s.variationName ? s.product.name : s.subLabel}
+                      </p>
                     </div>
                     {match ? (
                       count > 0 && (
@@ -1157,7 +1213,7 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                         </span>
                       )
                     ) : (
-                      <span className="text-[10px] text-gray-300 shrink-0 font-medium">unregistered</span>
+                      <span className="text-[10px] text-gray-300 shrink-0 font-medium">+</span>
                     )}
                   </button>
                 )
@@ -1186,9 +1242,13 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
               </svg>
             </div>
             <div>
-              <p className="text-base font-bold text-gray-800">{selectedProduct?.name}</p>
+              <p className="text-base font-bold text-gray-800">
+                {selectedVariationName
+                  ? `${selectedProduct?.name} — ${selectedVariationName}`
+                  : selectedProduct?.name}
+              </p>
               <p className="text-xs text-gray-400 mt-1.5 max-w-xs mx-auto">
-                This menu item isn&apos;t registered as an ingredient yet. Register it so other menu items can use it as a sub-component.
+                This {selectedVariationName ? 'variation' : 'menu item'} isn&apos;t registered as an ingredient yet. Register it so other menu items can use it as a sub-component.
               </p>
             </div>
             <button
