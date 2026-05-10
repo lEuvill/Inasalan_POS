@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { api, Order, Transaction, OrderStatus } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
-import { printReceipt, ReceiptData, loadPrintSettings, savePrintSettings, PrintSettings } from '@/app/lib/printReceipt'
+import { printReceipt, printKitchenOrder, printGrillerOrder, ReceiptData, loadAllPrintSettings, saveAllPrintSettings, AllPrintSettings, PrintSettings, PrintFormat } from '@/app/lib/printReceipt'
 
 function orderToReceipt(order: Order): ReceiptData {
   return {
@@ -134,15 +134,40 @@ function SettingRow({
   )
 }
 
+const FORMAT_LABELS: Record<PrintFormat, { label: string; icon: string }> = {
+  receipt: { label: 'Receipt', icon: '🧾' },
+  kitchen: { label: 'Kitchen', icon: '🍳' },
+  griller: { label: 'Griller', icon: '🔥' },
+}
+
 function PrintSettingsModal({ onClose }: { onClose: () => void }) {
-  const [s, setS] = useState<PrintSettings>(() => loadPrintSettings())
-  const upd = (key: keyof PrintSettings, v: number) => setS(prev => ({ ...prev, [key]: v }))
+  const [all, setAll] = useState<AllPrintSettings>(() => loadAllPrintSettings())
+  const [tab, setTab] = useState<PrintFormat>('receipt')
+
+  const s = all[tab]
+  const upd = (key: keyof PrintSettings, v: number) =>
+    setAll(prev => ({ ...prev, [tab]: { ...prev[tab], [key]: v } }))
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
         <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Thermal Printer</p>
         <h3 className="font-bold text-gray-800 text-lg mb-4">Print Settings</h3>
+
+        {/* Format tabs */}
+        <div className="flex gap-1 mb-5 bg-gray-100 rounded-xl p-1">
+          {(Object.keys(FORMAT_LABELS) as PrintFormat[]).map(f => (
+            <button
+              key={f}
+              onClick={() => setTab(f)}
+              className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-colors ${
+                tab === f ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {FORMAT_LABELS[f].icon} {FORMAT_LABELS[f].label}
+            </button>
+          ))}
+        </div>
 
         <div className="space-y-5">
           <SettingRow
@@ -172,7 +197,7 @@ function PrintSettingsModal({ onClose }: { onClose: () => void }) {
             Cancel
           </button>
           <button
-            onClick={() => { savePrintSettings(s); onClose() }}
+            onClick={() => { saveAllPrintSettings(all); onClose() }}
             className="flex-1 bg-brand text-white rounded-xl py-2 text-sm font-semibold hover:bg-brand-dark"
           >
             Save
@@ -352,6 +377,20 @@ export default function DashboardPage() {
                     title="Print receipt"
                   >
                     Print
+                  </button>
+                  <button
+                    onClick={() => printKitchenOrder(orderToReceipt(order))}
+                    className="text-xs text-gray-400 hover:text-blue-500 px-1.5 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+                    title="Print kitchen order"
+                  >
+                    Kitchen
+                  </button>
+                  <button
+                    onClick={() => void printGrillerOrder(orderToReceipt(order))}
+                    className="text-xs text-gray-400 hover:text-orange-500 px-1.5 py-1 rounded-lg hover:bg-orange-50 transition-colors"
+                    title="Print griller order"
+                  >
+                    Griller
                   </button>
                   <button
                     onClick={() => setVoidOrderId(order.id)}

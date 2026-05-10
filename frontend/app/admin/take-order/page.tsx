@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
-import { printReceipt, ReceiptData } from '@/app/lib/printReceipt'
+import { printReceipt, printKitchenOrder, printGrillerOrder, ReceiptData } from '@/app/lib/printReceipt'
 
 type OrderStep = 'cart' | 'payment' | 'table'
 
@@ -253,6 +253,8 @@ export default function TakeOrderPage() {
       }
       setLastReceiptData(receipt)
       printReceipt(receipt)
+      printKitchenOrder(receipt)
+      void printGrillerOrder(receipt)
 
       // Show success banner then auto-dismiss
       const placed: LastPlaced = { slip: slip || '—', total: roundedTotal, table: tbl.trim() }
@@ -286,7 +288,7 @@ export default function TakeOrderPage() {
         </div>
       )}
 
-      {/* ── Success banner ── */}
+      {/* ── Success banner (auto-dismisses) ── */}
       {lastPlaced && (
         <div className="shrink-0 bg-green-500 text-white px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -299,16 +301,34 @@ export default function TakeOrderPage() {
               <p className="text-xs text-green-100 leading-tight">₱{lastPlaced.total.toFixed(2)} · Ready for next order</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {lastReceiptData && (
-              <button
-                onClick={() => printReceipt(lastReceiptData)}
-                className="text-xs font-semibold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors"
-              >
-                🖨 Reprint
-              </button>
-            )}
-            <button onClick={() => setLastPlaced(null)} className="text-green-200 hover:text-white text-lg leading-none">✕</button>
+          <button onClick={() => setLastPlaced(null)} className="text-green-200 hover:text-white text-lg leading-none">✕</button>
+        </div>
+      )}
+
+      {/* ── Persistent reprint bar (stays until next order) ── */}
+      {lastReceiptData && (
+        <div className="shrink-0 bg-gray-700 text-white px-4 py-1.5 flex items-center justify-between">
+          <span className="text-xs text-gray-400 font-medium">Last order</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => printReceipt(lastReceiptData)}
+              className="text-xs font-semibold bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded-lg transition-colors"
+            >
+              🖨 Reprint
+            </button>
+            <button
+              onClick={() => printKitchenOrder(lastReceiptData)}
+              className="text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg transition-colors"
+            >
+              🍳 Kitchen
+            </button>
+            <button
+              onClick={() => void printGrillerOrder(lastReceiptData)}
+              className="text-xs font-semibold bg-orange-600 hover:bg-orange-500 text-white px-3 py-1 rounded-lg transition-colors"
+            >
+              🔥 Griller
+            </button>
+            <button onClick={() => setLastReceiptData(null)} className="text-gray-500 hover:text-gray-300 text-sm leading-none ml-1">✕</button>
           </div>
         </div>
       )}
@@ -416,11 +436,14 @@ export default function TakeOrderPage() {
                         </div>
                         <div className="px-2 pt-2 pb-1">
                           <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
-                          {p.stock !== null && (
-                            <p className={`text-[10px] font-semibold mb-1 ${p.stock === 0 ? 'text-red-400' : p.stock <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
-                              {p.stock === 0 ? 'Out of stock' : `${p.stock} left`}
-                            </p>
-                          )}
+                          {p.stock !== null && (() => {
+                            const pRemaining = Math.max(0, p.stock - count)
+                            return (
+                              <p className={`text-[10px] font-semibold mb-1 ${pRemaining === 0 ? 'text-red-400' : pRemaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                                {pRemaining === 0 ? 'Out of stock' : `${pRemaining} left`}
+                              </p>
+                            )
+                          })()}
                           <div className="flex flex-wrap gap-1">
                             {p.variations.map((v, vi) => {
                               const varName = `${p.name} - ${v.name}`
@@ -431,17 +454,19 @@ export default function TakeOrderPage() {
                               return (
                                 <button key={vi}
                                   onClick={() => pushToCart(p.id, varName, parseFloat(v.price))}
+                                  disabled={outOfStock}
                                   className={`flex-1 rounded-lg py-1.5 px-1 text-center transition-all
-                                    ${inCart ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
+                                    ${outOfStock ? 'bg-gray-100 cursor-not-allowed opacity-50' :
+                                      inCart ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
                                   <p className="text-xs font-semibold truncate leading-tight">{v.name}</p>
                                   {outOfStock
-                                    ? <p className="text-[10px] leading-tight text-red-300">Out of stock</p>
+                                    ? <p className="text-[10px] leading-tight text-red-400">Out of stock</p>
                                     : <p className={`text-[10px] leading-tight ${inCart ? 'text-white/80' : 'text-gray-400'}`}>₱{parseFloat(v.price).toFixed(2)}</p>
                                   }
                                   {varRemaining !== null && !outOfStock && varRemaining <= 10 && (
                                     <p className={`text-[10px] leading-tight ${inCart ? 'text-amber-200' : 'text-amber-500'}`}>{varRemaining} left</p>
                                   )}
-                                  {inCart && <p className="text-xs font-bold leading-tight">×{inCart.quantity}</p>}
+                                  {inCart && !outOfStock && <p className="text-xs font-bold leading-tight">×{inCart.quantity}</p>}
                                 </button>
                               )
                             })}
@@ -454,6 +479,9 @@ export default function TakeOrderPage() {
                     )
                   }
 
+                  const remaining = p.stock !== null ? Math.max(0, p.stock - count) : null
+                  const isOutOfStock = remaining !== null && remaining === 0
+
                   return (
                     <div key={p.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden relative
                       ${count > 0 ? 'border-brand ring-1 ring-brand/20' : 'border-gray-100'}`}>
@@ -465,22 +493,24 @@ export default function TakeOrderPage() {
                       </div>
                       <div className="px-2 pt-2 pb-2">
                         <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
-                        {p.stock !== null && (() => {
-                          const remaining = Math.max(0, p.stock - count)
-                          return (
-                            <p className={`text-[10px] font-semibold mb-1 ${remaining === 0 ? 'text-red-400' : remaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
-                              {remaining === 0 ? 'Out of stock' : `${remaining} left`}
-                            </p>
-                          )
-                        })()}
+                        {remaining !== null && (
+                          <p className={`text-[10px] font-semibold mb-1 ${remaining === 0 ? 'text-red-400' : remaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
+                            {remaining === 0 ? 'Out of stock' : `${remaining} left`}
+                          </p>
+                        )}
                         <button type="button"
                           onClick={() => pushToCart(p.id, p.name, parseFloat(p.price))}
+                          disabled={isOutOfStock}
                           className={`w-full rounded-lg py-1.5 text-center text-xs font-semibold transition-all
-                            ${count > 0 ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
+                            ${isOutOfStock ? 'bg-gray-100 text-gray-300 cursor-not-allowed' :
+                              count > 0 ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
                           ₱{parseFloat(p.price).toFixed(2)}
-                          {count > 0 && <span className="ml-1 font-bold">×{count}</span>}
+                          {count > 0 && !isOutOfStock && <span className="ml-1 font-bold">×{count}</span>}
                         </button>
                       </div>
+                      {count > 0 && (
+                        <span className="absolute top-2 right-2 bg-brand text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold shadow">{count}</span>
+                      )}
                     </div>
                   )
                 })}

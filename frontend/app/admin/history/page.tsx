@@ -3,6 +3,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api, Transaction, Product, OrderItem } from '@/app/lib/api'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
+import { printReceipt, ReceiptData } from '@/app/lib/printReceipt'
+
+function transactionToReceipt(t: Transaction): ReceiptData {
+  return {
+    slipNumber:    t.order_detail?.slip_number  ?? undefined,
+    orderType:     t.order_detail?.order_type   ?? '',
+    paymentMethod: t.order_detail?.payment_method ?? '',
+    items:         t.order_detail?.items_json   ?? [],
+    total:         parseFloat(t.total),
+    date:          new Date(t.completed_at),
+  }
+}
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
@@ -567,6 +579,12 @@ export default function HistoryPage() {
                       </span>
                     ) : (
                       <span className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => printReceipt(transactionToReceipt(t))}
+                          className="text-xs text-gray-400 hover:text-brand font-medium hover:underline"
+                        >
+                          Print
+                        </button>
                         <button
                           onClick={() => setEditOrderId(t.order)}
                           className="text-xs text-gray-400 hover:text-brand font-medium hover:underline"
