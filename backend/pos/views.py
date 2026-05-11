@@ -46,15 +46,117 @@ class OrderViewSet(viewsets.ModelViewSet):
             qs = qs.exclude(status__in=[Order.Status.COMPLETED, Order.Status.VOIDED])
         return qs
 
-    def _deduct_stock(self, items_json):
+    def _recalc_and_broadcast(self):
+        """Recalculate every product's stock from current raw-material levels and broadcast updates."""
+        from decimal import Decimal
+        from collections import defaultdict
+
+        all_ings = list(ProductIngredient.objects.select_related('raw_material').all())
+
+        by_key = defaultdict(list)
+        for ing in all_ings:
+            by_key[(ing.product_id, ing.variation_name or '')].append(ing)
+
+        plain_patches = {}   # product_id → stock (int)
+        var_patches   = {}   # product_id → {variation_name → stock (int)}
+
+        for (product_id, variation_name), ings in by_key.items():
+            bottleneck = None
+            for ing in ings:
+                mat = ing.raw_material
+                stock_qty       = float(mat.stock_qty or 0)
+                yield_min       = float(mat.yield_min or 0)
+                qty_per_serving = float(ing.qty_per_serving or 0)
+                if not yield_min or not qty_per_serving:
+                    continue
+                servings = int((stock_qty * yield_min) / qty_per_serving)
+                if bottleneck is None or servings < bottleneck:
+                    bottleneck = servings
+            if bottleneck is None:
+                continue
+            if variation_name == '':
+                plain_patches[product_id] = bottleneck
+            else:
+                var_patches.setdefault(product_id, {})[variation_name] = bottleneck
+
+        for product_id in set(plain_patches) | set(var_patches):
+            try:
+                product = Product.objects.get(id=product_id)
+                if product_id in plain_patches:
+                    product.stock = plain_patches[product_id]
+                if product_id in var_patches:
+                    vmap = var_patches[product_id]
+                    product.variations = [
+                        {**v, 'stock': vmap[v['name']]} if v.get('name') in vmap else v
+                        for v in (product.variations or [])
+                    ]
+                product.save()
+                _broadcast('PRODUCT_UPDATE', ProductSerializer(product).data)
+            except Product.DoesNotExist:
+                pass
+
+    def _deduct_and_recalc(self, items_json):
+        """Deduct raw-material stock for ordered items, then recalc product stocks."""
+        from decimal import Decimal
+        from collections import defaultdict
+
+        mat_deductions  = defaultdict(Decimal)   # raw_material_id → qty to deduct
+        direct_deducts  = defaultdict(int)        # product_id → qty (no recipe products)
+
         for item in items_json:
             product_id = item.get('productId')
-            quantity = item.get('quantity', 0)
-            if product_id and quantity > 0:
-                Product.objects.filter(
-                    id=product_id,
-                    stock__isnull=False,
-                ).update(stock=Greatest(F('stock') - quantity, 0))
+            quantity   = item.get('quantity', 0)
+            if not product_id or quantity <= 0:
+                continue
+
+            try:
+                product = Product.objects.get(id=product_id)
+            except Product.DoesNotExist:
+                continue
+
+            # Resolve variation name from item name  (e.g. "Leg Meal - Whole" → "Whole")
+            item_name = item.get('name', '')
+            if product.name and item_name.startswith(product.name + ' - '):
+                variation_name = item_name[len(product.name) + 3:]
+            else:
+                variation_name = ''
+
+            ings = list(ProductIngredient.objects.filter(
+                product_id=product_id, variation_name=variation_name
+            ))
+            # Fall back to product-level recipe if no variation-specific recipe found
+            if not ings and variation_name:
+                ings = list(ProductIngredient.objects.filter(
+                    product_id=product_id, variation_name=''
+                ))
+
+            if ings:
+                for ing in ings:
+                    mat_deductions[ing.raw_material_id] += Decimal(str(ing.qty_per_serving)) * quantity
+            elif product.stock is not None:
+                # No recipe at all — fall back to direct product.stock deduction
+                direct_deducts[product_id] += quantity
+
+        # Apply raw-material deductions
+        for mat_id, qty in mat_deductions.items():
+            RawMaterial.objects.filter(id=mat_id).update(
+                stock_qty=Greatest(F('stock_qty') - qty, 0)
+            )
+
+        # Recalculate all product stocks from updated raw-material levels
+        if mat_deductions:
+            self._recalc_and_broadcast()
+
+        # Direct product.stock deductions for products with no recipe
+        for product_id, qty in direct_deducts.items():
+            Product.objects.filter(
+                id=product_id, stock__isnull=False
+            ).update(stock=Greatest(F('stock') - qty, 0))
+            try:
+                product = Product.objects.get(id=product_id)
+                _broadcast('PRODUCT_UPDATE', ProductSerializer(product).data)
+            except Product.DoesNotExist:
+                pass
 
     def perform_create(self, serializer):
         order = serializer.save()
@@ -70,7 +172,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 defaults={'total': order.total, 'completed_at': completed_at},
             )
         else:
-            self._deduct_stock(order.items_json)
+            self._deduct_and_recalc(order.items_json)
             _broadcast('NEW_ORDER', OrderSerializer(order).data)
 
     def perform_update(self, serializer):
