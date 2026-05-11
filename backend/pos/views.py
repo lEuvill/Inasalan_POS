@@ -121,18 +121,23 @@ class OrderViewSet(viewsets.ModelViewSet):
             else:
                 variation_name = ''
 
-            ings = list(ProductIngredient.objects.filter(
+            ings = list(ProductIngredient.objects.select_related('raw_material').filter(
                 product_id=product_id, variation_name=variation_name
             ))
             # Fall back to product-level recipe if no variation-specific recipe found
             if not ings and variation_name:
-                ings = list(ProductIngredient.objects.filter(
+                ings = list(ProductIngredient.objects.select_related('raw_material').filter(
                     product_id=product_id, variation_name=''
                 ))
 
             if ings:
                 for ing in ings:
-                    mat_deductions[ing.raw_material_id] += Decimal(str(ing.qty_per_serving)) * quantity
+                    yield_min = Decimal(str(ing.raw_material.yield_min))
+                    if yield_min > 0:
+                        # stock_qty is in purchase_unit; qty_per_serving is in serving_unit.
+                        # Convert: purchase_units_used = qty_per_serving / yield_min
+                        deduction = Decimal(str(ing.qty_per_serving)) / yield_min * quantity
+                        mat_deductions[ing.raw_material_id] += deduction
             elif product.stock is not None:
                 # No recipe at all — fall back to direct product.stock deduction
                 direct_deducts[product_id] += quantity

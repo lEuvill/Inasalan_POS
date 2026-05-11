@@ -446,21 +446,18 @@ export default function TakeOrderPage() {
                             : <span className="text-2xl">🍽️</span>}
                         </div>
                         <div className="px-2 pt-2 pb-1">
-                          <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-0.5">{p.name}</p>
-                          {p.stock !== null && (() => {
-                            const pRemaining = Math.max(0, p.stock - count)
-                            return (
-                              <p className={`text-[10px] font-semibold mb-1 ${pRemaining === 0 ? 'text-red-400' : pRemaining <= 10 ? 'text-amber-500' : 'text-gray-400'}`}>
-                                {pRemaining === 0 ? 'Out of stock' : `${pRemaining} left`}
-                              </p>
-                            )
-                          })()}
+                          <p className="text-xs font-semibold text-gray-800 line-clamp-1 mb-1">{p.name}</p>
                           <div className="flex flex-wrap gap-1">
                             {p.variations.map((v, vi) => {
                               const varName = `${p.name} - ${v.name}`
                               const inCart = cart.find(c => c.name === varName)
                               const varQty = inCart?.quantity ?? 0
-                              const varRemaining = v.stock != null ? Math.max(0, v.stock - varQty) : null
+                              // Per-variation stock takes priority; fall back to shared product-level pool
+                              const varRemaining = v.stock != null
+                                ? Math.max(0, v.stock - varQty)
+                                : p.stock != null
+                                  ? Math.max(0, p.stock - count)
+                                  : null
                               const outOfStock = varRemaining !== null && varRemaining === 0
                               return (
                                 <button key={vi}
@@ -470,14 +467,19 @@ export default function TakeOrderPage() {
                                     ${outOfStock ? 'bg-gray-100 cursor-not-allowed opacity-50' :
                                       inCart ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-brand'}`}>
                                   <p className="text-xs font-semibold truncate leading-tight">{v.name}</p>
-                                  {outOfStock
-                                    ? <p className="text-[10px] leading-tight text-red-400">Out of stock</p>
-                                    : <p className={`text-[10px] leading-tight ${inCart ? 'text-white/80' : 'text-gray-400'}`}>₱{parseFloat(v.price).toFixed(2)}</p>
-                                  }
-                                  {varRemaining !== null && !outOfStock && varRemaining <= 10 && (
-                                    <p className={`text-[10px] leading-tight ${inCart ? 'text-amber-200' : 'text-amber-500'}`}>{varRemaining} left</p>
+                                  <p className={`text-[10px] leading-tight ${
+                                    outOfStock ? 'text-red-400' : inCart ? 'text-white/80' : 'text-gray-400'
+                                  }`}>
+                                    {outOfStock ? 'Out of stock' : `₱${parseFloat(v.price).toFixed(2)}`}
+                                  </p>
+                                  {varRemaining !== null && !outOfStock && (
+                                    <p className={`text-[10px] leading-tight ${
+                                      varRemaining <= 5 ? (inCart ? 'text-red-300' : 'text-red-400') :
+                                      varRemaining <= 10 ? (inCart ? 'text-amber-200' : 'text-amber-500') :
+                                      (inCart ? 'text-white/60' : 'text-gray-400')
+                                    }`}>{varRemaining} left</p>
                                   )}
-                                  {inCart && !outOfStock && <p className="text-xs font-bold leading-tight">×{inCart.quantity}</p>}
+                                  {inCart && !outOfStock && <p className="text-xs font-bold leading-tight">×{varQty}</p>}
                                 </button>
                               )
                             })}
