@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient
+from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient, RawMaterialSnapshot
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -41,6 +41,13 @@ class RawMaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = RawMaterial
         fields = '__all__'
+
+
+class RawMaterialSnapshotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RawMaterialSnapshot
+        fields = '__all__'
+        read_only_fields = ['saved_at', 'data']
 
 
 class ProductIngredientSerializer(serializers.ModelSerializer):

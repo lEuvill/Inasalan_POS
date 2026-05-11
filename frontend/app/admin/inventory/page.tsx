@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { api, Product, ProductVariation, RawMaterial, ProductIngredient } from '@/app/lib/api'
+import { api, Product, ProductVariation, RawMaterial, ProductIngredient, RawMaterialSnapshot } from '@/app/lib/api'
 
 // ─── Stock tab ────────────────────────────────────────────────────────────────
 
@@ -609,11 +609,111 @@ function IngredientRow({
   )
 }
 
+function fmtDateTime(iso: string) {
+  const d = new Date(iso)
+  return (
+    d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' · ' +
+    d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true })
+  )
+}
+
+function SnapshotHistoryDrawer({
+  onClose,
+}: {
+  onClose: () => void
+}) {
+  const [snapshots, setSnapshots] = useState<RawMaterialSnapshot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.getSnapshots().then(s => { setSnapshots(s); setLoading(false) })
+  }, [])
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+
+      {/* Drawer */}
+      <div className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div>
+            <h2 className="text-base font-bold text-gray-800">Stock History</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Snapshots of ingredient stock over time</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center text-xl">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {loading && (
+            <div className="text-center py-12 text-gray-400 text-sm">Loading…</div>
+          )}
+          {!loading && snapshots.length === 0 && (
+            <div className="text-center py-16">
+              <p className="text-2xl mb-2">📋</p>
+              <p className="text-gray-500 font-medium text-sm">No snapshots yet</p>
+              <p className="text-xs text-gray-400 mt-1">Hit Save in the Ingredients tab to record the current stock levels.</p>
+            </div>
+          )}
+          {snapshots.map((snap, idx) => {
+            const isOpen = expanded === snap.id
+            const isLatest = idx === 0
+            return (
+              <div key={snap.id} className={`rounded-2xl border overflow-hidden ${isLatest ? 'border-brand/30 bg-orange-50/30' : 'border-gray-100 bg-white'}`}>
+                <button
+                  className="w-full flex items-center justify-between px-4 py-3 text-left"
+                  onClick={() => setExpanded(isOpen ? null : snap.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    {isLatest && (
+                      <span className="text-[10px] font-bold bg-brand text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Latest</span>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{fmtDateTime(snap.saved_at)}</p>
+                      <p className="text-xs text-gray-400">{snap.data.length} ingredient{snap.data.length !== 1 ? 's' : ''} recorded</p>
+                    </div>
+                  </div>
+                  <span className="text-gray-400 text-sm">{isOpen ? '▾' : '▸'}</span>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-gray-100 divide-y divide-gray-50">
+                    {snap.data.length === 0 ? (
+                      <p className="px-4 py-3 text-xs text-gray-400">No ingredients were recorded.</p>
+                    ) : (
+                      snap.data.map(entry => {
+                        const qty = parseFloat(entry.stock_qty)
+                        return (
+                          <div key={entry.id} className="flex items-center justify-between px-4 py-2.5">
+                            <span className="text-sm text-gray-700 font-medium">{entry.name}</span>
+                            <span className={`text-sm font-bold tabular-nums ${qty === 0 ? 'text-red-400' : qty <= 5 ? 'text-amber-500' : 'text-gray-800'}`}>
+                              {qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(2)} <span className="text-xs font-normal text-gray-400">{entry.purchase_unit}</span>
+                            </span>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
-  const [materials, setMaterials] = useState<RawMaterial[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing]     = useState<RawMaterial | null>(null)
+  const [materials, setMaterials]   = useState<RawMaterial[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showModal, setShowModal]   = useState(false)
+  const [editing, setEditing]       = useState<RawMaterial | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
 
   const load = useCallback(async () => {
     setMaterials(await api.getRawMaterials())
@@ -646,6 +746,17 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
   const openEdit   = (m: RawMaterial) => { setEditing(m); setShowModal(true) }
   const openCreate = () => { setEditing(null); setShowModal(true) }
 
+  const handleSaveSnapshot = async () => {
+    setSaving(true)
+    try {
+      await api.createSnapshot()
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
   const stocked = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
@@ -659,8 +770,8 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-4 min-w-0">
           {materials.length > 0 && (
             <>
               <span className="text-sm text-gray-500">{materials.length} ingredient{materials.length !== 1 ? 's' : ''}</span>
@@ -671,10 +782,51 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
             </>
           )}
         </div>
-        <button onClick={openCreate}
-          className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
-          + Add Ingredient
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* History button */}
+          <button
+            onClick={() => setShowHistory(true)}
+            title="View stock history"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-gray-500 hover:text-brand hover:border-brand text-sm font-semibold transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            History
+          </button>
+
+          {/* Save snapshot button */}
+          <button
+            onClick={handleSaveSnapshot}
+            disabled={saving || materials.length === 0}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-40 ${
+              savedFlash
+                ? 'bg-green-500 text-white'
+                : 'bg-gray-800 hover:bg-gray-700 text-white'
+            }`}
+          >
+            {savedFlash ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Saved!
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                </svg>
+                {saving ? 'Saving…' : 'Save'}
+              </>
+            )}
+          </button>
+
+          <button onClick={openCreate}
+            className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
+            + Add Ingredient
+          </button>
+        </div>
       </div>
 
       {/* Empty state */}
@@ -727,6 +879,8 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
           onClose={() => { setShowModal(false); setEditing(null) }}
         />
       )}
+
+      {showHistory && <SnapshotHistoryDrawer onClose={() => setShowHistory(false)} />}
     </div>
   )
 }

@@ -8,8 +8,8 @@ from rest_framework.views import APIView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient
-from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer, TableSerializer, RawMaterialSerializer, ProductIngredientSerializer
+from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient, RawMaterialSnapshot
+from .serializers import ProductSerializer, OrderSerializer, TransactionSerializer, TableSerializer, RawMaterialSerializer, ProductIngredientSerializer, RawMaterialSnapshotSerializer
 
 _channel_layer = get_channel_layer()
 
@@ -210,6 +210,24 @@ class TableViewSet(viewsets.ModelViewSet):
 class RawMaterialViewSet(viewsets.ModelViewSet):
     queryset = RawMaterial.objects.all()
     serializer_class = RawMaterialSerializer
+
+
+class RawMaterialSnapshotViewSet(viewsets.ModelViewSet):
+    queryset = RawMaterialSnapshot.objects.all()
+    serializer_class = RawMaterialSnapshotSerializer
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def perform_create(self, serializer):
+        data = [
+            {
+                'id': m.id,
+                'name': m.name,
+                'stock_qty': str(m.stock_qty),
+                'purchase_unit': m.purchase_unit,
+            }
+            for m in RawMaterial.objects.all()
+        ]
+        serializer.save(data=data)
 
 
 class ProductIngredientViewSet(viewsets.ModelViewSet):

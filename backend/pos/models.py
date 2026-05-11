@@ -107,6 +107,17 @@ class ProductIngredient(models.Model):
         return f'{self.raw_material.name} in {label}'
 
 
+class RawMaterialSnapshot(models.Model):
+    saved_at = models.DateTimeField(auto_now_add=True)
+    data = models.JSONField()  # [{id, name, stock_qty, purchase_unit}]
+
+    class Meta:
+        ordering = ['-saved_at']
+
+    def __str__(self):
+        return f'Snapshot {self.pk} @ {self.saved_at}'
+
+
 class Transaction(models.Model):
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='transaction')
     android_id = models.IntegerField(unique=True, null=True, blank=True)

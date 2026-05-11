@@ -85,6 +85,19 @@ export type RawMaterial = {
   updated_at: string
 }
 
+export type SnapshotEntry = {
+  id: number
+  name: string
+  stock_qty: string
+  purchase_unit: string
+}
+
+export type RawMaterialSnapshot = {
+  id: number
+  saved_at: string
+  data: SnapshotEntry[]
+}
+
 export type ProductIngredient = {
   id: number
   product: number
@@ -160,6 +173,10 @@ export const api = {
     request<RawMaterial>(`/api/raw-materials/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteRawMaterial: (id: number) =>
     request<void>(`/api/raw-materials/${id}/`, { method: 'DELETE' }),
+
+  // Ingredient Snapshots
+  getSnapshots: () => request<RawMaterialSnapshot[]>('/api/raw-material-snapshots/'),
+  createSnapshot: () => request<RawMaterialSnapshot>('/api/raw-material-snapshots/', { method: 'POST', body: JSON.stringify({}) }),
 
   // Product Ingredients (Recipes)
   getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),
