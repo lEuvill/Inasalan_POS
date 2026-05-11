@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { api, Order, Transaction, OrderStatus } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
-import { printReceipt, printKitchenOrder, printGrillerOrder, ReceiptData, loadAllPrintSettings, saveAllPrintSettings, AllPrintSettings, PrintSettings, PrintFormat } from '@/app/lib/printReceipt'
+import { printReceipt, printCashierReceipt, printKitchenOrder, printGrillerOrder, ReceiptData, loadAllPrintSettings, saveAllPrintSettings, AllPrintSettings, PrintSettings, PrintFormat } from '@/app/lib/printReceipt'
 
 function orderToReceipt(order: Order): ReceiptData {
   return {
@@ -15,6 +15,7 @@ function orderToReceipt(order: Order): ReceiptData {
     tableNumber:   order.table_number || undefined,
     items:         order.items_json,
     total:         parseFloat(order.total),
+    isUnpaid:      order.is_unpaid,
     date:          new Date(order.created_at),
   }
 }
@@ -256,6 +257,11 @@ export default function DashboardPage() {
     await api.updateOrderStatus(order.id, next)
   }
 
+  const markPaid = async (order: Order) => {
+    const updated = await api.markPaid(order.id)
+    setActiveOrders(prev => prev.map(o => o.id === updated.id ? updated : o))
+  }
+
   const SOURCE_LABEL: Record<string, string> = {
     'walk-in': 'Walk-in',
     'web': 'Web',
@@ -320,7 +326,7 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {activeOrders.map(order => (
-            <div key={order.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <div key={order.id} className={`rounded-2xl shadow-sm border p-4 ${order.is_unpaid ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}`}>
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -354,9 +360,16 @@ export default function DashboardPage() {
                     )}
                   </div>
                 </div>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLOR[order.status]}`}>
-                  {order.status}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {order.is_unpaid && (
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-600">
+                      UNPAID
+                    </span>
+                  )}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLOR[order.status]}`}>
+                    {order.status}
+                  </span>
+                </div>
               </div>
 
               <ul className="text-xs text-gray-500 space-y-0.5 mb-3">
@@ -368,53 +381,67 @@ export default function DashboardPage() {
                 ))}
               </ul>
 
-              <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-gray-800">₱{order.total}</span>
+              <div className={`pt-2 border-t space-y-2 ${order.is_unpaid ? 'border-red-200' : 'border-gray-100'}`}>
+                {/* Print buttons row */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-xs text-gray-400 font-medium mr-0.5">Print:</span>
                   <button
                     onClick={() => printReceipt(orderToReceipt(order))}
-                    className="text-xs text-gray-400 hover:text-brand px-1.5 py-1 rounded-lg hover:bg-orange-50 transition-colors"
-                    title="Print receipt"
+                    className="text-xs text-gray-400 hover:text-brand px-2 py-1 rounded-lg hover:bg-orange-50 transition-colors"
                   >
-                    Print
+                    Customer
+                  </button>
+                  <button
+                    onClick={() => printCashierReceipt(orderToReceipt(order))}
+                    className={`text-xs px-2 py-1 rounded-lg transition-colors ${order.is_unpaid ? 'text-red-400 hover:text-red-600 hover:bg-red-100' : 'text-gray-400 hover:text-brand hover:bg-orange-50'}`}
+                  >
+                    Cashier
                   </button>
                   <button
                     onClick={() => printKitchenOrder(orderToReceipt(order))}
-                    className="text-xs text-gray-400 hover:text-blue-500 px-1.5 py-1 rounded-lg hover:bg-blue-50 transition-colors"
-                    title="Print kitchen order"
+                    className="text-xs text-gray-400 hover:text-blue-500 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
                   >
                     Kitchen
                   </button>
                   <button
                     onClick={() => void printGrillerOrder(orderToReceipt(order))}
-                    className="text-xs text-gray-400 hover:text-orange-500 px-1.5 py-1 rounded-lg hover:bg-orange-50 transition-colors"
-                    title="Print griller order"
+                    className="text-xs text-gray-400 hover:text-orange-500 px-2 py-1 rounded-lg hover:bg-orange-50 transition-colors"
                   >
                     Griller
                   </button>
-                  <button
-                    onClick={() => setVoidOrderId(order.id)}
-                    className="text-xs text-red-300 hover:text-red-500 px-1.5 py-1 rounded-lg hover:bg-red-50 transition-colors"
-                    title="Void order"
-                  >
-                    Void
-                  </button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setEditOrderId(order.id)}
-                    className="text-xs text-gray-400 hover:text-brand px-2 py-1.5 rounded-lg hover:bg-orange-50 transition-colors"
-                  >
-                    + Add Items
-                  </button>
-                  {STATUS_NEXT[order.status] && (
+                {/* Action row */}
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-sm text-gray-800">₱{order.total}</span>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => advance(order)}
-                      className="bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-brand-dark transition-colors"
+                      onClick={() => setEditOrderId(order.id)}
+                      className="text-xs text-gray-400 hover:text-brand px-2 py-1.5 rounded-lg hover:bg-orange-50 transition-colors"
                     >
-                      → {STATUS_NEXT[order.status]}
+                      + Add Items
                     </button>
-                  )}
+                    <button
+                      onClick={() => setVoidOrderId(order.id)}
+                      className="text-xs text-red-300 hover:text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      Void
+                    </button>
+                    {order.is_unpaid && order.status === 'READY' ? (
+                      <button
+                        onClick={() => markPaid(order)}
+                        className="bg-red-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors"
+                      >
+                        Mark Paid
+                      </button>
+                    ) : STATUS_NEXT[order.status] && (
+                      <button
+                        onClick={() => advance(order)}
+                        className="bg-brand text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-brand-dark transition-colors"
+                      >
+                        → {STATUS_NEXT[order.status]}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

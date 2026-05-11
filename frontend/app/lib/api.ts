@@ -45,6 +45,7 @@ export type Order = {
   total: string
   status: OrderStatus
   source: string
+  is_unpaid: boolean
   created_at: string
   transaction?: Transaction
 }
@@ -124,7 +125,7 @@ export const api = {
     request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
   getOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`),
-  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string }) =>
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string; is_unpaid?: boolean }) =>
     request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
   deleteOrder: (id: number) =>
     request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
@@ -134,6 +135,8 @@ export const api = {
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status: 'VOIDED' }) }),
   patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod }) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  markPaid: (id: number) =>
+    request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ is_unpaid: false }) }),
 
   // Transactions
   getTransactions: () => request<Transaction[]>('/api/transactions/'),

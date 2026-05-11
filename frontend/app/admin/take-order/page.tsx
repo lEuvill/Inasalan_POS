@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
-import { printReceipt, printKitchenOrder, printGrillerOrder, ReceiptData } from '@/app/lib/printReceipt'
+import { printReceipt, printCashierReceipt, printKitchenOrder, printGrillerOrder, ReceiptData } from '@/app/lib/printReceipt'
 
 type OrderStep = 'cart' | 'payment' | 'table'
 
@@ -24,6 +24,7 @@ export default function TakeOrderPage() {
   const [amountTendered, setAmountTendered] = useState('')
   const [tableNumber, setTableNumber] = useState('')
   const [tables, setTables]           = useState<Table[]>([])
+  const [isUnpaid, setIsUnpaid]             = useState(false)
   const [lastPlaced, setLastPlaced]         = useState<LastPlaced | null>(null)
   const [lastReceiptData, setLastReceiptData] = useState<ReceiptData | null>(null)
   const [stockWarn, setStockWarn]           = useState<string | null>(null)
@@ -237,6 +238,7 @@ export default function TakeOrderPage() {
         payment_method: paymentMethod,
         ...(slip ? { slip_number: slip } : {}),
         ...(tbl.trim() ? { table_number: tbl.trim() } : {}),
+        ...(isUnpaid ? { is_unpaid: true } : {}),
       })
       if (slip) localStorage.setItem('pos_last_slip_number', slip)
 
@@ -248,11 +250,13 @@ export default function TakeOrderPage() {
         tableNumber: tbl.trim() || undefined,
         items: cart,
         total: roundedTotal,
-        amountTendered: paymentMethod === 'CASH' && amountTendered ? parseFloat(amountTendered) : undefined,
+        amountTendered: !isUnpaid && paymentMethod === 'CASH' && amountTendered ? parseFloat(amountTendered) : undefined,
+        isUnpaid,
         date: new Date(),
       }
       setLastReceiptData(receipt)
       printReceipt(receipt)
+      printCashierReceipt(receipt)
       printKitchenOrder(receipt)
       void printGrillerOrder(receipt)
 
@@ -267,6 +271,7 @@ export default function TakeOrderPage() {
       setStep('cart')
       setAmountTendered('')
       setTableNumber('')
+      setIsUnpaid(false)
       if (slip) {
         const n = parseInt(slip, 10)
         if (!isNaN(n)) setSlipNumber(String(n + 1))
@@ -314,7 +319,13 @@ export default function TakeOrderPage() {
               onClick={() => printReceipt(lastReceiptData)}
               className="text-xs font-semibold bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded-lg transition-colors"
             >
-              🖨 Reprint
+              🧾 Customer
+            </button>
+            <button
+              onClick={() => printCashierReceipt(lastReceiptData)}
+              className={`text-xs font-semibold px-3 py-1 rounded-lg transition-colors text-white ${lastReceiptData.isUnpaid ? 'bg-red-600 hover:bg-red-500' : 'bg-gray-600 hover:bg-gray-500'}`}
+            >
+              🖨 Cashier{lastReceiptData.isUnpaid ? ' (UNPAID)' : ''}
             </button>
             <button
               onClick={() => printKitchenOrder(lastReceiptData)}
@@ -631,9 +642,22 @@ export default function TakeOrderPage() {
               <span className="text-xl font-bold text-brand">₱{total.toFixed(2)}</span>
             </div>
             <button
+              type="button"
+              onClick={() => setIsUnpaid(prev => !prev)}
+              className={`w-full py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                isUnpaid
+                  ? 'border-red-400 bg-red-50 text-red-600'
+                  : 'border-dashed border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'
+              }`}
+            >
+              {isUnpaid ? '⚠ UNPAID — collect payment later' : '+ Mark as Unpaid'}
+            </button>
+            <button
               onClick={() => { if (cart.length > 0) setStep('payment') }}
               disabled={cart.length === 0}
-              className="w-full bg-brand text-white font-bold py-3 rounded-xl hover:bg-brand-dark transition-colors disabled:opacity-40"
+              className={`w-full text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-40 ${
+                isUnpaid ? 'bg-red-500 hover:bg-red-600' : 'bg-brand hover:bg-brand-dark'
+              }`}
             >
               Place Order
             </button>
@@ -713,7 +737,18 @@ export default function TakeOrderPage() {
             </p>
           </div>
 
-          {paymentMethod === 'CASH' ? (
+          {isUnpaid ? (
+            <div className="px-6 py-8 flex flex-col items-center gap-3">
+              <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center">
+                <span className="text-2xl">⚠</span>
+              </div>
+              <p className="text-sm font-bold text-red-600">UNPAID ORDER</p>
+              <p className="text-sm text-gray-500 text-center">
+                Order will be placed without payment. Collect{' '}
+                <span className="font-bold text-gray-800">₱{total.toFixed(2)}</span> before completing.
+              </p>
+            </div>
+          ) : paymentMethod === 'CASH' ? (
             <div className="px-6 py-5 space-y-4">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Amount Tendered</p>
@@ -760,9 +795,9 @@ export default function TakeOrderPage() {
             <button onClick={() => setStep('cart')}
               className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50">Back</button>
             <button onClick={() => setStep('table')}
-              disabled={paymentMethod === 'CASH' && (amountTendered === '' || parseFloat(amountTendered) < total)}
-              className="flex-1 bg-brand text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-dark disabled:opacity-40 transition-colors">
-              Confirm Payment
+              disabled={!isUnpaid && paymentMethod === 'CASH' && (amountTendered === '' || parseFloat(amountTendered) < total)}
+              className={`flex-1 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40 transition-colors ${isUnpaid ? 'bg-red-500 hover:bg-red-600' : 'bg-brand hover:bg-brand-dark'}`}>
+              {isUnpaid ? 'Place as Unpaid' : 'Confirm Payment'}
             </button>
           </div>
         </div>

@@ -74,6 +74,12 @@ class OrderViewSet(viewsets.ModelViewSet):
             _broadcast('NEW_ORDER', OrderSerializer(order).data)
 
     def perform_update(self, serializer):
+        instance = serializer.instance
+        new_status = serializer.validated_data.get('status', instance.status)
+        new_is_unpaid = serializer.validated_data.get('is_unpaid', instance.is_unpaid)
+        if new_status == Order.Status.COMPLETED and new_is_unpaid:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': 'Cannot complete an unpaid order. Mark as paid first.'})
         order = serializer.save()
         if order.status == Order.Status.COMPLETED:
             Transaction.objects.get_or_create(

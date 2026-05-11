@@ -51,6 +51,7 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     source = models.CharField(max_length=10, default='web')  # 'web' or 'android'
     table_number = models.CharField(max_length=20, blank=True, default='')
+    is_unpaid = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

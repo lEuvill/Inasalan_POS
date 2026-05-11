@@ -96,14 +96,9 @@ function StockRow({ product, onSaved }: { product: Product; onSaved: (id: number
 }
 
 function VariationStockRow({
-  product,
-  variationIndex,
-  variation,
-  onSaved,
+  product, variationIndex, variation, onSaved,
 }: {
-  product: Product
-  variationIndex: number
-  variation: ProductVariation
+  product: Product; variationIndex: number; variation: ProductVariation
   onSaved: (productId: number, updatedVariations: ProductVariation[]) => void
 }) {
   const [draft, setDraft] = useState(variation.stock == null ? '' : String(variation.stock))
@@ -183,15 +178,12 @@ function VariationStockRow({
 }
 
 function StockTab({
-  products,
-  onSaved,
-  onVariationSaved,
+  products, onSaved, onVariationSaved,
 }: {
   products: Product[]
   onSaved: (id: number, stock: number | null) => void
   onVariationSaved: (productId: number, updatedVariations: ProductVariation[]) => void
 }) {
-  // Flatten all stock entries: products with variations contribute one entry per variation
   const allStocks = products.flatMap(p =>
     p.variations.length > 0 ? p.variations.map(v => v.stock ?? null) : [p.stock]
   )
@@ -275,182 +267,13 @@ function StockTab({
   )
 }
 
-// ─── Raw Stock tab ────────────────────────────────────────────────────────────
-
-function RawStockRow({
-  item,
-  onSaved,
-}: {
-  item: RawMaterial
-  onSaved: (id: number, stock_qty: string) => void
-}) {
-  const currentQty = parseFloat(item.stock_qty) || 0
-  const [draft, setDraft] = useState(currentQty > 0 ? String(currentQty) : '')
-  const [saving, setSaving] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    const n = parseFloat(item.stock_qty) || 0
-    setDraft(n > 0 ? String(n) : '')
-  }, [item.stock_qty])
-
-  const save = async (value: string) => {
-    if (parseFloat(value) === parseFloat(item.stock_qty)) return
-    setSaving(true)
-    try {
-      await api.updateRawMaterial(item.id, { stock_qty: value })
-      onSaved(item.id, value)
-    } finally { setSaving(false) }
-  }
-
-  const commitDraft = () => {
-    const n = parseFloat(draft)
-    if (draft.trim() === '') save('0')
-    else if (!isNaN(n) && n >= 0) save(String(n))
-    else { const c = parseFloat(item.stock_qty) || 0; setDraft(c > 0 ? String(c) : '') }
-  }
-
-  const adjust = (delta: number) => {
-    const next = Math.max(0, (parseFloat(item.stock_qty) || 0) + delta)
-    setDraft(next > 0 ? String(next) : '')
-    save(String(next))
-  }
-
-  const stockQty  = parseFloat(item.stock_qty) || 0
-  const yieldMin  = parseFloat(item.yield_min)
-  const yieldMax  = parseFloat(item.yield_max)
-  const hasStock  = stockQty > 0 && yieldMin > 0
-  const srvMin    = hasStock ? stockQty * yieldMin : 0
-  const srvMax    = hasStock && yieldMax > yieldMin ? stockQty * yieldMax : srvMin
-
-  return (
-    <div className="flex items-center gap-4 py-3 border-b border-gray-50 last:border-0 group">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-        <p className="text-xs text-gray-400">{item.serving_unit} · yield {item.yield_min}{parseFloat(item.yield_max) > yieldMin ? `–${item.yield_max}` : ''}/{item.purchase_unit}</p>
-      </div>
-
-      {/* Derived serving units available */}
-      <div className="w-44 shrink-0 text-right">
-        {hasStock ? (
-          <div>
-            <p className="text-sm font-bold text-brand">
-              {srvMin === srvMax
-                ? srvMin % 1 === 0 ? srvMin.toFixed(0) : srvMin.toFixed(1)
-                : `${srvMin % 1 === 0 ? srvMin.toFixed(0) : srvMin.toFixed(1)}–${srvMax % 1 === 0 ? srvMax.toFixed(0) : srvMax.toFixed(1)}`}
-              {' '}{item.serving_unit}
-            </p>
-            <p className="text-xs text-gray-400">available</p>
-          </div>
-        ) : (
-          <p className="text-xs text-gray-300">— set stock</p>
-        )}
-      </div>
-
-      {/* Stock input */}
-      <div className="flex items-center gap-1 shrink-0">
-        <button onClick={() => adjust(-1)} disabled={saving || stockQty <= 0}
-          className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-sm font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 transition-colors">−</button>
-        <input
-          ref={inputRef}
-          type="number" min="0" step="any" value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onBlur={commitDraft}
-          onKeyDown={e => { if (e.key === 'Enter') { commitDraft(); inputRef.current?.blur() } }}
-          placeholder="0"
-          className="w-16 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold text-gray-800 focus:outline-none focus:border-brand"
-        />
-        <button onClick={() => adjust(1)} disabled={saving}
-          className="w-7 h-7 rounded-lg bg-brand text-white text-sm font-bold flex items-center justify-center hover:bg-brand-dark disabled:opacity-30 transition-colors">+</button>
-        <span className="text-xs text-gray-400 w-7 ml-0.5">{item.purchase_unit}</span>
-      </div>
-    </div>
-  )
-}
-
-function RawStockTab({ onStockChange }: { onStockChange: () => void }) {
-  const [materials, setMaterials] = useState<RawMaterial[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [syncing, setSyncing]     = useState(false)
-
-  const load = useCallback(async () => {
-    setMaterials(await api.getRawMaterials())
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  const handleSaved = (id: number, stock_qty: string) => {
-    setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock_qty } : m))
-    setSyncing(true)
-    onStockChange()
-    setTimeout(() => setSyncing(false), 2000)
-  }
-
-  if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
-
-  if (materials.length === 0) {
-    return (
-      <div className="text-center py-16 text-gray-400 text-sm">
-        No ingredients yet. Add ingredients in the <strong className="text-gray-600">Costing</strong> tab first.
-      </div>
-    )
-  }
-
-  const stocked  = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
-  const noStock  = materials.length - stocked
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <div className="flex-1 grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 text-center">
-            <p className="text-2xl font-bold text-gray-800">{stocked}</p>
-            <p className="text-xs text-gray-400 mt-0.5">Stocked</p>
-          </div>
-          <div className={`rounded-2xl border shadow-sm p-4 text-center ${noStock > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
-            <p className={`text-2xl font-bold ${noStock > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{noStock}</p>
-            <p className={`text-xs mt-0.5 ${noStock > 0 ? 'text-amber-500' : 'text-gray-400'}`}>No Stock Set</p>
-          </div>
-        </div>
-        {syncing && (
-          <div className="shrink-0 flex items-center gap-2 text-xs text-brand font-medium bg-orange-50 border border-orange-100 rounded-xl px-3 py-2">
-            <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
-            Updating Stock tab…
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-4 px-5 py-3 bg-gray-50 border-b border-gray-100">
-          <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
-          <span className="w-44 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Serving Units Available</span>
-          <span className="w-32 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Stock on Hand</span>
-        </div>
-        <div className="px-5">
-          {materials.map(m => <RawStockRow key={m.id} item={m} onSaved={handleSaved} />)}
-        </div>
-      </div>
-
-      <p className="text-xs text-gray-400">
-        Serving units are derived from yield settings in the Costing tab. Stock entered here feeds into the Recipes tab yield estimate.
-      </p>
-    </div>
-  )
-}
-
-// ─── Costing tab ──────────────────────────────────────────────────────────────
+// ─── Ingredients tab ──────────────────────────────────────────────────────────
 
 type RawForm = {
-  name: string
-  purchase_unit: string
-  batch_qty: string
-  batch_price: string
-  serving_unit: string
-  yield_min: string
-  yield_max: string
-  stock_qty: string
-  notes: string
+  name: string; purchase_unit: string
+  batch_qty: string; batch_price: string
+  serving_unit: string; yield_min: string; yield_max: string
+  stock_qty: string; notes: string
 }
 
 const BLANK_FORM: RawForm = {
@@ -468,9 +291,9 @@ function costPerServing(form: RawForm) {
   const yHi = yMax && yMax >= yMin ? yMax : yMin
   return {
     pricePerUnit,
-    low:  pricePerUnit / yHi,
-    high: pricePerUnit / yMin,
-    isRange: yMax && yMax > yMin,
+    low:     pricePerUnit / yHi,
+    high:    pricePerUnit / yMin,
+    isRange: !!(yMax && yMax > yMin),
   }
 }
 
@@ -479,14 +302,16 @@ function fmtPeso(n: number) {
 }
 
 function RawMaterialModal({
-  initial,
-  onSave,
-  onClose,
+  initial, onSave, onClose,
 }: {
   initial?: RawMaterial
   onSave: (form: RawForm) => Promise<void>
   onClose: () => void
 }) {
+  const hasCostingData = initial
+    ? parseFloat(initial.batch_price) > 0
+    : false
+
   const [form, setForm] = useState<RawForm>(
     initial
       ? {
@@ -498,22 +323,32 @@ function RawMaterialModal({
         }
       : BLANK_FORM,
   )
+  const [showCosting, setShowCosting] = useState(hasCostingData)
   const [saving, setSaving] = useState(false)
 
   const set = (k: keyof RawForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm(prev => ({ ...prev, [k]: e.target.value }))
 
-  const cost = costPerServing(form)
+  const cost = showCosting ? costPerServing(form) : null
   const batchQty   = parseFloat(form.batch_qty)
   const batchPrice = parseFloat(form.batch_price)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    try { await onSave(form) } finally { setSaving(false) }
+    // Fill in safe defaults for any empty costing fields
+    const payload: RawForm = {
+      ...form,
+      batch_qty:    form.batch_qty    || '1',
+      batch_price:  showCosting ? (form.batch_price  || '0') : '0',
+      serving_unit: form.serving_unit || form.purchase_unit || 'unit',
+      yield_min:    form.yield_min    || '1',
+      yield_max:    form.yield_max    || '1',
+    }
+    try { await onSave(payload) } finally { setSaving(false) }
   }
 
-  const field = (label: string, key: keyof RawForm, props?: React.InputHTMLAttributes<HTMLInputElement>) => (
+  const inp = (label: string, key: keyof RawForm, props?: React.InputHTMLAttributes<HTMLInputElement>) => (
     <div>
       <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
       <input
@@ -531,87 +366,86 @@ function RawMaterialModal({
 
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
           <h3 className="font-bold text-gray-800 text-base">{initial ? 'Edit Ingredient' : 'Add Ingredient'}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Enter purchase info and serving yield to compute cost</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {initial ? 'Update ingredient details' : 'Name and unit are enough to get started — add costing later'}
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
-          {field('Ingredient Name', 'name', { placeholder: 'e.g. Rice', required: true })}
+          {/* Always-required fields */}
+          {inp('Ingredient Name', 'name', { placeholder: 'e.g. Rice, Chicken, Cooking Oil', required: true, autoFocus: !initial })}
 
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Purchase</p>
-            <div className="grid grid-cols-3 gap-3">
-              {field('Batch qty', 'batch_qty', { type: 'number', min: '0', step: 'any', placeholder: '25', required: true })}
-              {field('Unit', 'purchase_unit', { placeholder: 'kg', required: true })}
-              {field('Batch price (₱)', 'batch_price', { type: 'number', min: '0', step: 'any', placeholder: '1375', required: true })}
-            </div>
-            {batchQty > 0 && batchPrice > 0 && (
-              <p className="text-xs text-gray-400 mt-1.5">
-                → <span className="font-semibold text-gray-600">{fmtPeso(batchPrice / batchQty)}</span> per {form.purchase_unit || 'unit'}
-              </p>
+          <div className="grid grid-cols-2 gap-3">
+            {inp('Purchase Unit', 'purchase_unit', { placeholder: 'kg, pc, L, bag…', required: true })}
+            {inp('Stock on Hand', 'stock_qty', { type: 'number', min: '0', step: 'any', placeholder: '0' })}
+          </div>
+
+          {/* Costing section — optional */}
+          <div className={`rounded-xl border transition-colors ${showCosting ? 'border-orange-200 bg-orange-50/40' : 'border-dashed border-gray-200'}`}>
+            <button
+              type="button"
+              onClick={() => setShowCosting(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+              <span className={`text-xs font-semibold ${showCosting ? 'text-orange-700' : 'text-gray-400'}`}>
+                {showCosting ? '▾ Costing details' : '▸ Add costing details (optional)'}
+              </span>
+              {!showCosting && (
+                <span className="text-xs text-gray-300">batch price, yield, cost/serving</span>
+              )}
+            </button>
+
+            {showCosting && (
+              <div className="px-4 pb-4 space-y-4">
+
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Purchase batch</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {inp('Qty', 'batch_qty', { type: 'number', min: '0', step: 'any', placeholder: '25' })}
+                    {inp('Unit', 'purchase_unit', { placeholder: 'kg' })}
+                    {inp('Price (₱)', 'batch_price', { type: 'number', min: '0', step: 'any', placeholder: '1375' })}
+                  </div>
+                  {batchQty > 0 && batchPrice > 0 && (
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      → <span className="font-semibold text-gray-600">{fmtPeso(batchPrice / batchQty)}</span> per {form.purchase_unit || 'unit'}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">
+                    Yield per {form.purchase_unit || 'purchase unit'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {inp('Min yield', 'yield_min', { type: 'number', min: '0', step: 'any', placeholder: '4.2' })}
+                    {inp('Max yield', 'yield_max', { type: 'number', min: '0', step: 'any', placeholder: '5.0' })}
+                    {inp('Serving unit', 'serving_unit', { placeholder: 'cup' })}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Leave max blank if yield is fixed</p>
+                </div>
+
+                {cost && (
+                  <div className="bg-white border border-orange-100 rounded-xl px-4 py-3">
+                    <p className="text-xs font-bold text-orange-700 mb-1.5">Cost per {form.serving_unit || 'serving'}</p>
+                    {cost.isRange ? (
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-lg font-bold text-orange-600">{fmtPeso(cost.low)}</span>
+                        <span className="text-orange-300">–</span>
+                        <span className="text-lg font-bold text-orange-600">{fmtPeso(cost.high)}</span>
+                        <span className="text-xs text-orange-400 ml-1">avg {fmtPeso((cost.low + cost.high) / 2)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-lg font-bold text-orange-600">{fmtPeso(cost.low)}</span>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Yield per {form.purchase_unit || 'purchase unit'}</p>
-            <div className="grid grid-cols-3 gap-3">
-              {field('Min yield', 'yield_min', { type: 'number', min: '0', step: 'any', placeholder: '4.2', required: true })}
-              {field('Max yield', 'yield_max', { type: 'number', min: '0', step: 'any', placeholder: '5.0' })}
-              {field('Serving unit', 'serving_unit', { placeholder: 'cup', required: true })}
-            </div>
-            <p className="text-xs text-gray-400 mt-1.5">Leave max yield blank if yield is fixed</p>
-          </div>
+          {inp('Notes (optional)', 'notes', { placeholder: 'Brand, supplier, any context…' })}
 
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Stock on Hand</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                {field('Current qty', 'stock_qty', { type: 'number', min: '0', step: 'any', placeholder: '0' })}
-              </div>
-              <div className="w-24 pt-5">
-                <p className="text-sm text-gray-400 font-medium">{form.purchase_unit || 'units'}</p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Used to estimate serving yield in Recipes tab</p>
-          </div>
-
-          {cost && (
-            <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3">
-              <p className="text-xs font-bold text-orange-700 mb-2">Cost per {form.serving_unit || 'serving'}</p>
-              <div className="flex items-end gap-3">
-                {cost.isRange ? (
-                  <>
-                    <div>
-                      <p className="text-[10px] text-orange-400 font-medium">Low (max yield)</p>
-                      <p className="text-lg font-bold text-orange-600">{fmtPeso(cost.low)}</p>
-                    </div>
-                    <span className="text-orange-300 text-sm mb-1">–</span>
-                    <div>
-                      <p className="text-[10px] text-orange-400 font-medium">High (min yield)</p>
-                      <p className="text-lg font-bold text-orange-600">{fmtPeso(cost.high)}</p>
-                    </div>
-                    <div className="ml-auto text-right">
-                      <p className="text-[10px] text-orange-400 font-medium">Average</p>
-                      <p className="text-lg font-bold text-orange-500">{fmtPeso((cost.low + cost.high) / 2)}</p>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-2xl font-bold text-orange-600">{fmtPeso(cost.low)}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
-            <textarea
-              value={form.notes}
-              onChange={set('notes')}
-              rows={2}
-              placeholder="Any extra context…"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand resize-none"
-            />
-          </div>
         </div>
 
         <div className="px-6 pb-6 pt-4 border-t border-gray-100 flex gap-3 shrink-0">
@@ -629,74 +463,130 @@ function RawMaterialModal({
   )
 }
 
-function CostRow({
-  item,
-  onEdit,
-  onDelete,
+function IngredientRow({
+  item, onStockSaved, onEdit, onDelete,
 }: {
   item: RawMaterial
+  onStockSaved: (id: number, stock_qty: string) => void
   onEdit: () => void
   onDelete: () => void
 }) {
+  const stockQty = parseFloat(item.stock_qty) || 0
+  const [draft, setDraft] = useState(stockQty > 0 ? String(stockQty) : '')
+  const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const n = parseFloat(item.stock_qty) || 0
+    setDraft(n > 0 ? String(n) : '')
+  }, [item.stock_qty])
+
+  const saveStock = async (value: string) => {
+    if (parseFloat(value) === parseFloat(item.stock_qty)) return
+    setSaving(true)
+    try {
+      await api.updateRawMaterial(item.id, { stock_qty: value })
+      onStockSaved(item.id, value)
+    } finally { setSaving(false) }
+  }
+
+  const commitDraft = () => {
+    const n = parseFloat(draft)
+    if (draft.trim() === '') saveStock('0')
+    else if (!isNaN(n) && n >= 0) saveStock(String(n))
+    else { setDraft(stockQty > 0 ? String(stockQty) : '') }
+  }
+
+  const adjust = (delta: number) => {
+    const next = Math.max(0, stockQty + delta)
+    setDraft(next > 0 ? String(next) : '')
+    saveStock(String(next))
+  }
+
+  const yieldMin = parseFloat(item.yield_min) || 0
+  const yieldMax = parseFloat(item.yield_max) || 0
+  const hasYield = yieldMin > 0 && !!item.serving_unit
+  const hasStock = stockQty > 0 && hasYield
+  const srvMin = hasStock ? stockQty * yieldMin : 0
+  const srvMax = hasStock && yieldMax > yieldMin ? stockQty * yieldMax : srvMin
+  const fmt = (n: number) => n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)
+
   const cost = costPerServing({
     batch_qty: item.batch_qty, batch_price: item.batch_price,
     yield_min: item.yield_min, yield_max: item.yield_max,
     name: item.name, purchase_unit: item.purchase_unit,
-    serving_unit: item.serving_unit, stock_qty: item.stock_qty,
-    notes: item.notes,
+    serving_unit: item.serving_unit, stock_qty: item.stock_qty, notes: item.notes,
   })
-  const batchQty   = parseFloat(item.batch_qty)
-  const batchPrice = parseFloat(item.batch_price)
-  const stockQty   = parseFloat(item.stock_qty)
 
   return (
     <div className="flex items-center gap-4 py-3.5 border-b border-gray-50 last:border-0 group">
 
-      <div className="w-36 shrink-0">
+      {/* Name */}
+      <div className="w-44 shrink-0 min-w-0">
         <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
-        {item.notes && <p className="text-xs text-gray-400 truncate">{item.notes}</p>}
-        {stockQty > 0 ? (
-          <p className="text-xs text-green-600 font-medium">{item.stock_qty} {item.purchase_unit} on hand</p>
-        ) : (
-          <p className="text-xs text-gray-300">No stock set</p>
-        )}
+        <p className="text-xs text-gray-400 truncate">{item.notes || item.purchase_unit}</p>
       </div>
 
-      <div className="w-36 shrink-0">
-        <p className="text-xs text-gray-700">
-          {batchQty} {item.purchase_unit} · {fmtPeso(batchPrice)}
-        </p>
-        <p className="text-xs text-gray-400">
-          {fmtPeso(batchQty > 0 ? batchPrice / batchQty : 0)}/{item.purchase_unit}
-        </p>
+      {/* Stock on hand */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={() => adjust(-1)} disabled={saving || stockQty <= 0}
+          className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-sm font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 transition-colors">−</button>
+        <input
+          ref={inputRef}
+          type="number" min="0" step="any" value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={e => { if (e.key === 'Enter') { commitDraft(); inputRef.current?.blur() } }}
+          placeholder="0"
+          className="w-16 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold text-gray-800 focus:outline-none focus:border-brand"
+        />
+        <button onClick={() => adjust(1)} disabled={saving}
+          className="w-7 h-7 rounded-lg bg-brand text-white text-sm font-bold flex items-center justify-center hover:bg-brand-dark disabled:opacity-30 transition-colors">+</button>
+        <span className="text-xs text-gray-400 w-8 ml-0.5 truncate">{item.purchase_unit}</span>
       </div>
 
-      <div className="w-32 shrink-0">
-        <p className="text-xs text-gray-700">
-          {item.yield_min}
-          {parseFloat(item.yield_max) > parseFloat(item.yield_min) ? `–${item.yield_max}` : ''}
-          {' '}{item.serving_unit}/{item.purchase_unit}
-        </p>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        {cost ? (
-          cost.isRange ? (
-            <div>
-              <p className="text-sm font-bold text-brand">
-                {fmtPeso(cost.low)} – {fmtPeso(cost.high)}
-              </p>
-              <p className="text-xs text-gray-400">avg {fmtPeso((cost.low + cost.high) / 2)} / {item.serving_unit}</p>
-            </div>
-          ) : (
-            <p className="text-sm font-bold text-brand">{fmtPeso(cost.low)} / {item.serving_unit}</p>
-          )
+      {/* Serving units available */}
+      <div className="w-36 shrink-0 text-right">
+        {hasStock ? (
+          <div>
+            <p className="text-sm font-bold text-brand">
+              {srvMin === srvMax ? fmt(srvMin) : `${fmt(srvMin)}–${fmt(srvMax)}`} {item.serving_unit}
+            </p>
+            <p className="text-xs text-gray-400">available</p>
+          </div>
+        ) : hasYield ? (
+          <p className="text-xs text-gray-300">— set stock</p>
         ) : (
           <p className="text-xs text-gray-300">—</p>
         )}
       </div>
 
+      {/* Cost per serving */}
+      <div className="flex-1 min-w-0 text-right">
+        {cost ? (
+          cost.isRange ? (
+            <div>
+              <p className="text-sm font-bold text-gray-700">
+                {fmtPeso(cost.low)} – {fmtPeso(cost.high)}
+              </p>
+              <p className="text-xs text-gray-400">per {item.serving_unit}</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm font-bold text-gray-700">{fmtPeso(cost.low)}</p>
+              <p className="text-xs text-gray-400">per {item.serving_unit}</p>
+            </div>
+          )
+        ) : (
+          <button onClick={onEdit}
+            className="text-xs text-gray-300 hover:text-brand hover:underline font-medium">
+            + add costing
+          </button>
+        )}
+      </div>
+
+      {/* Edit / Delete */}
       <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {confirmDelete ? (
           <>
@@ -719,7 +609,7 @@ function CostRow({
   )
 }
 
-function CostingTab() {
+function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
   const [materials, setMaterials] = useState<RawMaterial[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -748,45 +638,86 @@ function CostingTab() {
     setMaterials(prev => prev.filter(m => m.id !== id))
   }
 
-  const openEdit = (m: RawMaterial) => { setEditing(m); setShowModal(true) }
+  const handleStockSaved = (id: number, stock_qty: string) => {
+    setMaterials(prev => prev.map(m => m.id === id ? { ...m, stock_qty } : m))
+    onStockChange()
+  }
+
+  const openEdit   = (m: RawMaterial) => { setEditing(m); setShowModal(true) }
   const openCreate = () => { setEditing(null); setShowModal(true) }
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
+  const stocked = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
+  const withCosting = materials.filter(m => costPerServing({
+    batch_qty: m.batch_qty, batch_price: m.batch_price, yield_min: m.yield_min,
+    yield_max: m.yield_max, name: m.name, purchase_unit: m.purchase_unit,
+    serving_unit: m.serving_unit, stock_qty: m.stock_qty, notes: m.notes,
+  }) !== null).length
+
   return (
     <div className="space-y-4">
 
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          {materials.length === 0
-            ? 'No ingredients yet. Add one to start tracking raw costs.'
-            : `${materials.length} ingredient${materials.length !== 1 ? 's' : ''}`}
-        </p>
+        <div className="flex items-center gap-4">
+          {materials.length > 0 && (
+            <>
+              <span className="text-sm text-gray-500">{materials.length} ingredient{materials.length !== 1 ? 's' : ''}</span>
+              <span className="text-xs text-gray-300">·</span>
+              <span className="text-sm text-gray-500">{stocked} stocked</span>
+              <span className="text-xs text-gray-300">·</span>
+              <span className="text-sm text-gray-500">{withCosting} with costing</span>
+            </>
+          )}
+        </div>
         <button onClick={openCreate}
           className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
           + Add Ingredient
         </button>
       </div>
 
+      {/* Empty state */}
+      {materials.length === 0 && (
+        <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
+          <p className="text-gray-500 font-medium">No ingredients yet</p>
+          <p className="text-xs text-gray-400 mt-1.5 max-w-xs mx-auto">
+            Add rice, chicken, cooking oil — just a name and unit to start. Costing details can be filled in later.
+          </p>
+          <button onClick={openCreate}
+            className="mt-4 bg-brand text-white font-semibold px-5 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm">
+            + Add your first ingredient
+          </button>
+        </div>
+      )}
+
+      {/* Table */}
       {materials.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="flex items-center gap-4 px-5 py-3 bg-gray-50 border-b border-gray-100">
-            <span className="w-36 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
-            <span className="w-36 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Batch</span>
-            <span className="w-32 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Yield</span>
-            <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide">Cost / Serving</span>
+            <span className="w-44 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wide shrink-0" style={{ width: '148px' }}>Stock on Hand</span>
+            <span className="w-36 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Serving Units Avail.</span>
+            <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Cost / Serving</span>
           </div>
           <div className="px-5">
             {materials.map(m => (
-              <CostRow
+              <IngredientRow
                 key={m.id}
                 item={m}
+                onStockSaved={handleStockSaved}
                 onEdit={() => openEdit(m)}
                 onDelete={() => handleDelete(m.id)}
               />
             ))}
           </div>
         </div>
+      )}
+
+      {materials.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Serving units are calculated from yield settings in costing. Stock feeds into the Recipes tab yield estimate.
+        </p>
       )}
 
       {showModal && (
@@ -800,23 +731,14 @@ function CostingTab() {
   )
 }
 
-// ─── Recipes tab (ingredient-first) ──────────────────────────────────────────
+// ─── Recipes tab ──────────────────────────────────────────────────────────────
 
 type MenuEntry = {
-  key: string
-  productId: number
-  productName: string
-  variationName: string
-  category: string
+  key: string; productId: number; productName: string; variationName: string; category: string
 }
 
-// A flat entry for the left-panel "Menu as Ingredient" list
 type ProductSource = {
-  sid: string       // 'product:id__' or 'product:id__VariationName'
-  label: string     // display name (may include variation)
-  subLabel: string  // category / 'Menu item'
-  product: Product
-  variationName: string
+  sid: string; label: string; subLabel: string; product: Product; variationName: string
 }
 
 function calcIngredientYield(ing: ProductIngredient): { min: number; max: number } | null {
@@ -832,17 +754,11 @@ function calcIngredientYield(ing: ProductIngredient): { min: number; max: number
   }
 }
 
-// Row in the right panel: one menu item using the selected ingredient
 function RecipeMenuRow({
-  ing,
-  products,
-  onDelete,
-  onUpdateQty,
+  ing, products, onDelete, onUpdateQty,
 }: {
-  ing: ProductIngredient
-  products: Product[]
-  onDelete: () => void
-  onUpdateQty: (id: number, qty: string) => Promise<void>
+  ing: ProductIngredient; products: Product[]
+  onDelete: () => void; onUpdateQty: (id: number, qty: string) => Promise<void>
 }) {
   const product = products.find(p => p.id === ing.product)
   const displayName = product
@@ -870,11 +786,9 @@ function RecipeMenuRow({
         <p className="text-sm font-medium text-gray-800 truncate">{displayName}</p>
         {product?.category && <p className="text-xs text-gray-400">{product.category}</p>}
       </div>
-
       <div className="flex items-center gap-2 shrink-0">
         <input
-          type="number" min="0" step="any"
-          value={draft}
+          type="number" min="0" step="any" value={draft}
           onChange={e => setDraft(e.target.value)}
           onBlur={commitDraft}
           onKeyDown={e => { if (e.key === 'Enter') commitDraft() }}
@@ -883,7 +797,6 @@ function RecipeMenuRow({
         />
         <span className="text-xs text-gray-400 whitespace-nowrap">{ing.serving_unit}/serving</span>
       </div>
-
       <div className="w-32 shrink-0 text-right">
         {yld ? (
           <p className="text-sm font-bold text-brand">
@@ -893,7 +806,6 @@ function RecipeMenuRow({
           <p className="text-xs text-gray-300">no stock</p>
         )}
       </div>
-
       <div className="w-14 flex items-center justify-end shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {confirmDelete ? (
           <div className="flex items-center gap-1">
@@ -915,7 +827,7 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
   const [products, setProducts]   = useState<Product[]>([])
   const [materials, setMaterials] = useState<RawMaterial[]>([])
   const [allIngredients, setAll]  = useState<ProductIngredient[]>([])
-  const [selectedSid, setSelectedSid] = useState('')  // 'raw:id' | 'product:id'
+  const [selectedSid, setSelectedSid] = useState('')
   const [search, setSearch]       = useState('')
   const [loading, setLoading]     = useState(true)
   const [adding, setAdding]       = useState(false)
@@ -926,27 +838,18 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
 
   const load = useCallback(async () => {
     const [p, m, i] = await Promise.all([
-      api.getProducts(),
-      api.getRawMaterials(),
-      api.getProductIngredients(),
+      api.getProducts(), api.getRawMaterials(), api.getProductIngredients(),
     ])
-    setProducts(p)
-    setMaterials(m)
-    setAll(i)
-    setLoading(false)
+    setProducts(p); setMaterials(m); setAll(i); setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  // ── Parse selected source ─────────────────────────────────────────────────
-  // sid formats:  'raw:<matId>'  |  'product:<prodId>__<variationName>'
   const parsedSid = useMemo(() => {
     if (!selectedSid) return null
-    if (selectedSid.startsWith('raw:')) {
-      return { type: 'raw' as const, id: parseInt(selectedSid.slice(4)), variationName: '' }
-    }
+    if (selectedSid.startsWith('raw:')) return { type: 'raw' as const, id: parseInt(selectedSid.slice(4)), variationName: '' }
     if (selectedSid.startsWith('product:')) {
-      const rest = selectedSid.slice(8)           // 'prodId__varName' or 'prodId__'
+      const rest = selectedSid.slice(8)
       const sep  = rest.indexOf('__')
       if (sep < 0) return { type: 'product' as const, id: parseInt(rest), variationName: '' }
       return { type: 'product' as const, id: parseInt(rest.slice(0, sep)), variationName: rest.slice(sep + 2) }
@@ -957,12 +860,9 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
   const selectedRaw = useMemo((): RawMaterial | null => {
     if (!parsedSid) return null
     if (parsedSid.type === 'raw') return materials.find(m => m.id === parsedSid.id) ?? null
-    // product-as-ingredient: find a matching RawMaterial by display name
     const prod = products.find(p => p.id === parsedSid.id)
     if (!prod) return null
-    const targetName = parsedSid.variationName
-      ? `${prod.name} — ${parsedSid.variationName}`
-      : prod.name
+    const targetName = parsedSid.variationName ? `${prod.name} — ${parsedSid.variationName}` : prod.name
     return materials.find(m => m.name.toLowerCase() === targetName.toLowerCase()) ?? null
   }, [parsedSid, materials, products])
 
@@ -973,27 +873,18 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
 
   const selectedVariationName = parsedSid?.type === 'product' ? parsedSid.variationName : ''
 
-  // ── Flat menu entries (product + variation combos) ────────────────────────
   const allMenuEntries = useMemo((): MenuEntry[] =>
     products.flatMap(p =>
       p.variations.length > 0
-        ? p.variations.map(v => ({
-            key: `${p.id}__${v.name}`,
-            productId: p.id,
-            productName: p.name,
-            variationName: v.name,
-            category: p.category,
-          }))
+        ? p.variations.map(v => ({ key: `${p.id}__${v.name}`, productId: p.id, productName: p.name, variationName: v.name, category: p.category }))
         : [{ key: `${p.id}__`, productId: p.id, productName: p.name, variationName: '', category: p.category }]
     ), [products])
 
-  // ── ProductIngredient records for the selected raw material ───────────────
   const linkedIngredients = useMemo(
     () => allIngredients.filter(i => i.raw_material === selectedRaw?.id),
     [allIngredients, selectedRaw]
   )
 
-  // Menu entries not yet linked
   const linkedKeys = useMemo(
     () => new Set(linkedIngredients.map(i => `${i.product}__${i.variation_name ?? ''}`)),
     [linkedIngredients]
@@ -1003,61 +894,35 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     [allMenuEntries, linkedKeys]
   )
 
-  // Usage count per raw material (for the left panel badge)
   const matUsage = useMemo(() => {
     const map = new Map<number, number>()
-    for (const ing of allIngredients) {
-      map.set(ing.raw_material, (map.get(ing.raw_material) ?? 0) + 1)
-    }
+    for (const ing of allIngredients) map.set(ing.raw_material, (map.get(ing.raw_material) ?? 0) + 1)
     return map
   }, [allIngredients])
 
-  // For a product source, find its matching RawMaterial by display name
   const productLinkedMat = useCallback(
     (label: string) => materials.find(m => m.name.toLowerCase() === label.toLowerCase()) ?? null,
     [materials]
   )
 
-  // Flat list of product sources for the left panel — one entry per variation (or per product if no variations)
   const productSources = useMemo((): ProductSource[] =>
     products.flatMap(p =>
       p.variations.length > 0
-        ? p.variations.map(v => ({
-            sid: `product:${p.id}__${v.name}`,
-            label: `${p.name} — ${v.name}`,
-            subLabel: p.category || 'Menu item',
-            product: p,
-            variationName: v.name,
-          }))
-        : [{
-            sid: `product:${p.id}__`,
-            label: p.name,
-            subLabel: p.category || 'Menu item',
-            product: p,
-            variationName: '',
-          }]
-    ), [products]
-  )
+        ? p.variations.map(v => ({ sid: `product:${p.id}__${v.name}`, label: `${p.name} — ${v.name}`, subLabel: p.category || 'Menu item', product: p, variationName: v.name }))
+        : [{ sid: `product:${p.id}__`, label: p.name, subLabel: p.category || 'Menu item', product: p, variationName: '' }]
+    ), [products])
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleAdd = async () => {
     if (!selectedRaw || !newMenuKey || !newQty) return
     const sep = newMenuKey.indexOf('__')
     if (sep < 0) return
-    const productId    = parseInt(newMenuKey.slice(0, sep))
+    const productId     = parseInt(newMenuKey.slice(0, sep))
     const variationName = newMenuKey.slice(sep + 2)
     setSaving(true)
     try {
-      const created = await api.createProductIngredient({
-        product: productId,
-        raw_material: selectedRaw.id,
-        qty_per_serving: newQty,
-        variation_name: variationName,
-      })
+      const created = await api.createProductIngredient({ product: productId, raw_material: selectedRaw.id, qty_per_serving: newQty, variation_name: variationName })
       setAll(prev => [...prev, created])
-      setNewMenuKey('')
-      setNewQty('')
-      setAdding(false)
+      setNewMenuKey(''); setNewQty(''); setAdding(false)
       onRecipeChanged()
     } finally { setSaving(false) }
   }
@@ -1074,101 +939,71 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     onRecipeChanged()
   }
 
-  // Register a product (or variation) as a raw ingredient
   const handleRegister = async () => {
     if (!selectedProduct) return
-    const name = selectedVariationName
-      ? `${selectedProduct.name} — ${selectedVariationName}`
-      : selectedProduct.name
-    const variation   = selectedVariationName
-      ? selectedProduct.variations.find(v => v.name === selectedVariationName)
-      : null
-    const price = variation?.price ?? selectedProduct.price ?? '0'
-    const stock = variation?.stock ?? selectedProduct.stock
+    const name      = selectedVariationName ? `${selectedProduct.name} — ${selectedVariationName}` : selectedProduct.name
+    const variation = selectedVariationName ? selectedProduct.variations.find(v => v.name === selectedVariationName) : null
+    const price     = variation?.price ?? selectedProduct.price ?? '0'
+    const stock     = variation?.stock ?? selectedProduct.stock
     setRegistering(true)
     try {
       const m = await api.createRawMaterial({
-        name,
-        purchase_unit: 'pc',
-        batch_qty: '1',
-        batch_price: price,
-        serving_unit: 'pc',
-        yield_min: '1',
-        yield_max: '1',
-        stock_qty: String(stock ?? 0),
-        notes: selectedVariationName
-          ? `Linked from menu item "${selectedProduct.name}" (${selectedVariationName})`
-          : `Linked from menu item "${selectedProduct.name}"`,
+        name, purchase_unit: 'pc', batch_qty: '1', batch_price: price,
+        serving_unit: 'pc', yield_min: '1', yield_max: '1', stock_qty: String(stock ?? 0),
+        notes: selectedVariationName ? `Linked from "${selectedProduct.name}" (${selectedVariationName})` : `Linked from "${selectedProduct.name}"`,
       })
       setMaterials(prev => [...prev, m])
     } finally { setRegistering(false) }
   }
 
-  // ── Search filter ─────────────────────────────────────────────────────────
   const q = search.toLowerCase()
-  const filteredMaterials = useMemo(
-    () => materials.filter(m => m.name.toLowerCase().includes(q)),
-    [materials, q]
-  )
-  const filteredProductSources = useMemo(
-    () => productSources.filter(s => s.label.toLowerCase().includes(q)),
-    [productSources, q]
-  )
+  const filteredMaterials      = useMemo(() => materials.filter(m => m.name.toLowerCase().includes(q)), [materials, q])
+  const filteredProductSources = useMemo(() => productSources.filter(s => s.label.toLowerCase().includes(q)), [productSources, q])
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
-  // ── Derived display values ────────────────────────────────────────────────
-  const stockQtyNum   = parseFloat(selectedRaw?.stock_qty ?? '0') || 0
-  const yieldMinNum   = parseFloat(selectedRaw?.yield_min ?? '0') || 0
-  const yieldMaxNum   = parseFloat(selectedRaw?.yield_max ?? '0') || 0
-  const hasYield      = stockQtyNum > 0 && yieldMinNum > 0
-  const availMin      = hasYield ? stockQtyNum * yieldMinNum : 0
-  const availMax      = hasYield && yieldMaxNum > yieldMinNum ? stockQtyNum * yieldMaxNum : availMin
+  const stockQtyNum = parseFloat(selectedRaw?.stock_qty ?? '0') || 0
+  const yieldMinNum = parseFloat(selectedRaw?.yield_min ?? '0') || 0
+  const yieldMaxNum = parseFloat(selectedRaw?.yield_max ?? '0') || 0
+  const hasYield    = stockQtyNum > 0 && yieldMinNum > 0
+  const availMin    = hasYield ? stockQtyNum * yieldMinNum : 0
+  const availMax    = hasYield && yieldMaxNum > yieldMinNum ? stockQtyNum * yieldMaxNum : availMin
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex gap-5 min-h-[520px]">
 
-      {/* ── Left panel: ingredient source list ── */}
+      {/* Left panel */}
       <div className="w-60 shrink-0 flex flex-col gap-3">
         <input
-          type="text"
-          placeholder="Search…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          type="text" placeholder="Search ingredients…"
+          value={search} onChange={e => setSearch(e.target.value)}
           className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-brand"
         />
 
-        {/* Raw Ingredients */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Raw Ingredients</p>
           </div>
           {filteredMaterials.length === 0 ? (
             <p className="px-4 py-5 text-xs text-gray-300 text-center">
-              {materials.length === 0 ? 'Add ingredients in the Costing tab' : 'No matches'}
+              {materials.length === 0 ? 'Add ingredients in the Ingredients tab' : 'No matches'}
             </p>
           ) : (
             <div>
               {filteredMaterials.map(m => {
-                const sid = `raw:${m.id}`
-                const count = matUsage.get(m.id) ?? 0
+                const sid    = `raw:${m.id}`
+                const count  = matUsage.get(m.id) ?? 0
                 const active = selectedSid === sid
                 return (
-                  <button
-                    key={m.id}
-                    onClick={() => { setSelectedSid(sid); setAdding(false) }}
+                  <button key={m.id} onClick={() => { setSelectedSid(sid); setAdding(false) }}
                     className={`w-full flex items-center gap-2.5 px-4 py-3 text-left border-b border-gray-50 last:border-0 transition-colors
-                      ${active ? 'bg-orange-50 border-l-[3px] border-l-brand' : 'hover:bg-gray-50'}`}
-                  >
+                      ${active ? 'bg-orange-50 border-l-[3px] border-l-brand' : 'hover:bg-gray-50'}`}>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${active ? 'text-brand' : 'text-gray-800'}`}>{m.name}</p>
-                      <p className="text-xs text-gray-400">{m.serving_unit}</p>
+                      <p className="text-xs text-gray-400">{m.serving_unit || m.purchase_unit}</p>
                     </div>
                     {count > 0 && (
-                      <span className="text-[10px] font-bold text-brand bg-orange-100 rounded-full px-1.5 py-0.5 shrink-0">
-                        {count}
-                      </span>
+                      <span className="text-[10px] font-bold text-brand bg-orange-100 rounded-full px-1.5 py-0.5 shrink-0">{count}</span>
                     )}
                   </button>
                 )
@@ -1177,7 +1012,6 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
           )}
         </div>
 
-        {/* Menu Items as Ingredients */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Menu as Ingredient</p>
@@ -1192,27 +1026,18 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                 const count  = match ? (matUsage.get(match.id) ?? 0) : 0
                 const active = selectedSid === s.sid
                 return (
-                  <button
-                    key={s.sid}
-                    onClick={() => { setSelectedSid(s.sid); setAdding(false) }}
+                  <button key={s.sid} onClick={() => { setSelectedSid(s.sid); setAdding(false) }}
                     className={`w-full flex items-center gap-2.5 px-4 py-3 text-left border-b border-gray-50 last:border-0 transition-colors
-                      ${active ? 'bg-blue-50 border-l-[3px] border-l-blue-400' : 'hover:bg-gray-50'}`}
-                  >
+                      ${active ? 'bg-blue-50 border-l-[3px] border-l-blue-400' : 'hover:bg-gray-50'}`}>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${active ? 'text-blue-600' : 'text-gray-800'}`}>
                         {s.variationName ? s.variationName : s.label}
                       </p>
-                      <p className="text-xs text-gray-400 truncate">
-                        {s.variationName ? s.product.name : s.subLabel}
-                      </p>
+                      <p className="text-xs text-gray-400 truncate">{s.variationName ? s.product.name : s.subLabel}</p>
                     </div>
-                    {match ? (
-                      count > 0 && (
-                        <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-1.5 py-0.5 shrink-0">
-                          {count}
-                        </span>
-                      )
-                    ) : (
+                    {match ? (count > 0 && (
+                      <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-1.5 py-0.5 shrink-0">{count}</span>
+                    )) : (
                       <span className="text-[10px] text-gray-300 shrink-0 font-medium">+</span>
                     )}
                   </button>
@@ -1223,18 +1048,17 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
         </div>
       </div>
 
-      {/* ── Right panel ── */}
+      {/* Right panel */}
       <div className="flex-1 min-w-0">
         {!selectedSid ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-300">
             <svg className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
             </svg>
-            <p className="text-sm">Select an ingredient to view recipe usage</p>
+            <p className="text-sm">Select an ingredient to view its recipe usage</p>
           </div>
 
         ) : parsedSid?.type === 'product' && !selectedRaw ? (
-          /* Product selected but not yet registered as ingredient */
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto">
               <svg className="w-7 h-7 text-blue-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1243,45 +1067,32 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
             </div>
             <div>
               <p className="text-base font-bold text-gray-800">
-                {selectedVariationName
-                  ? `${selectedProduct?.name} — ${selectedVariationName}`
-                  : selectedProduct?.name}
+                {selectedVariationName ? `${selectedProduct?.name} — ${selectedVariationName}` : selectedProduct?.name}
               </p>
               <p className="text-xs text-gray-400 mt-1.5 max-w-xs mx-auto">
-                This {selectedVariationName ? 'variation' : 'menu item'} isn&apos;t registered as an ingredient yet. Register it so other menu items can use it as a sub-component.
+                Not yet registered as an ingredient. Register it so other menu items can use it as a sub-component.
               </p>
             </div>
-            <button
-              onClick={handleRegister}
-              disabled={registering}
-              className="bg-blue-500 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-blue-600 transition-colors text-sm disabled:opacity-40"
-            >
+            <button onClick={handleRegister} disabled={registering}
+              className="bg-blue-500 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-blue-600 transition-colors text-sm disabled:opacity-40">
               {registering ? 'Registering…' : 'Register as Ingredient'}
             </button>
-            <p className="text-[10px] text-gray-300">
-              This creates a matching entry in Costing — edit units and yield there.
-            </p>
+            <p className="text-[10px] text-gray-300">Creates a matching entry in the Ingredients tab — edit units and yield there.</p>
           </div>
 
         ) : selectedRaw ? (
           <div className="space-y-4">
-
-            {/* ── Ingredient summary card ── */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-base font-bold text-gray-800">{selectedRaw.name}</h3>
                     {parsedSid?.type === 'product' && (
-                      <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
-                        Menu item
-                      </span>
+                      <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">Menu item</span>
                     )}
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {stockQtyNum > 0
-                      ? `${selectedRaw.stock_qty} ${selectedRaw.purchase_unit} on hand`
-                      : 'No stock set — update in Raw Stock tab'}
+                    {stockQtyNum > 0 ? `${selectedRaw.stock_qty} ${selectedRaw.purchase_unit} on hand` : 'No stock set — update in the Ingredients tab'}
                   </p>
                 </div>
                 <div className="text-right shrink-0">
@@ -1290,7 +1101,6 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                 </div>
               </div>
 
-              {/* Stock / yield stats */}
               {hasYield && (
                 <div className="mt-4 pt-4 border-t border-gray-50 grid grid-cols-3 gap-4">
                   <div>
@@ -1300,9 +1110,7 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                   <div>
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Yield rate</p>
                     <p className="text-sm font-bold text-gray-700 mt-0.5">
-                      {selectedRaw.yield_min}
-                      {yieldMaxNum > yieldMinNum ? `–${selectedRaw.yield_max}` : ''}
-                      {' '}{selectedRaw.serving_unit}/{selectedRaw.purchase_unit}
+                      {selectedRaw.yield_min}{yieldMaxNum > yieldMinNum ? `–${selectedRaw.yield_max}` : ''} {selectedRaw.serving_unit}/{selectedRaw.purchase_unit}
                     </p>
                   </div>
                   <div>
@@ -1318,22 +1126,16 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
               )}
             </div>
 
-            {/* ── Menu items using this ingredient ── */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <div>
                   <h4 className="text-sm font-bold text-gray-700">Menu Items Using This Ingredient</h4>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {linkedIngredients.length === 0
-                      ? 'None linked yet'
-                      : `${linkedIngredients.length} item${linkedIngredients.length !== 1 ? 's' : ''} · qty/serving controls yield estimate`}
+                    {linkedIngredients.length === 0 ? 'None linked yet' : `${linkedIngredients.length} item${linkedIngredients.length !== 1 ? 's' : ''} · qty/serving controls yield estimate`}
                   </p>
                 </div>
                 {availableMenuEntries.length > 0 && !adding && (
-                  <button
-                    onClick={() => setAdding(true)}
-                    className="text-sm font-semibold text-brand hover:underline"
-                  >
+                  <button onClick={() => setAdding(true)} className="text-sm font-semibold text-brand hover:underline">
                     + Add Menu Item
                   </button>
                 )}
@@ -1349,9 +1151,7 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                   </div>
                   {linkedIngredients.map(ing => (
                     <RecipeMenuRow
-                      key={ing.id}
-                      ing={ing}
-                      products={products}
+                      key={ing.id} ing={ing} products={products}
                       onDelete={() => handleDelete(ing.id)}
                       onUpdateQty={handleUpdateQty}
                     />
@@ -1372,11 +1172,8 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
                       <label className="block text-xs font-semibold text-gray-400 mb-1">Menu Item</label>
-                      <select
-                        value={newMenuKey}
-                        onChange={e => setNewMenuKey(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand bg-white"
-                      >
+                      <select value={newMenuKey} onChange={e => setNewMenuKey(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand bg-white">
                         <option value="">— Select menu item —</option>
                         {Object.entries(
                           availableMenuEntries.reduce<Record<string, MenuEntry[]>>((acc, e) => {
@@ -1398,26 +1195,18 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
                     </div>
                     <div className="w-44 shrink-0">
                       <label className="block text-xs font-semibold text-gray-400 mb-1">
-                        Qty per serving ({selectedRaw.serving_unit})
+                        Qty per serving ({selectedRaw.serving_unit || selectedRaw.purchase_unit})
                       </label>
-                      <input
-                        type="number" min="0" step="any" value={newQty}
-                        onChange={e => setNewQty(e.target.value)}
+                      <input type="number" min="0" step="any" value={newQty} onChange={e => setNewQty(e.target.value)}
                         placeholder="1"
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand"
-                      />
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand" />
                     </div>
-                    <button
-                      onClick={handleAdd}
-                      disabled={saving || !newMenuKey || !newQty}
-                      className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm disabled:opacity-40 shrink-0"
-                    >
+                    <button onClick={handleAdd} disabled={saving || !newMenuKey || !newQty}
+                      className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark transition-colors text-sm disabled:opacity-40 shrink-0">
                       {saving ? '…' : 'Add'}
                     </button>
-                    <button
-                      onClick={() => { setAdding(false); setNewMenuKey(''); setNewQty('') }}
-                      className="text-gray-400 hover:text-gray-700 text-sm py-2 shrink-0"
-                    >
+                    <button onClick={() => { setAdding(false); setNewMenuKey(''); setNewQty('') }}
+                      className="text-gray-400 hover:text-gray-700 text-sm py-2 shrink-0">
                       Cancel
                     </button>
                   </div>
@@ -1433,31 +1222,33 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'stock' | 'raw_stock' | 'costing' | 'recipes'
+type Tab = 'stock' | 'ingredients' | 'recipes'
 
 const TAB_LABELS: Record<Tab, string> = {
-  stock:     'Stock',
-  raw_stock: 'Raw Stock',
-  costing:   'Costing',
-  recipes:   'Recipes',
+  stock:       'Menu Stock',
+  ingredients: 'Ingredients',
+  recipes:     'Recipes',
+}
+
+const TAB_SUBTITLES: Record<Tab, string> = {
+  stock:       'Track stock levels for your menu items',
+  ingredients: 'Manage raw ingredients — add stock on hand and costing info',
+  recipes:     'Link ingredients to menu items and estimate serving yield',
 }
 
 export default function InventoryPage() {
-  const [products, setProducts]   = useState<Product[]>([])
+  const [products, setProducts] = useState<Product[]>([])
   const [materials, setMaterials] = useState<RawMaterial[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [tab, setTab]             = useState<Tab>('stock')
+  const [loading, setLoading]   = useState(true)
+  const [tab, setTab]           = useState<Tab>('stock')
 
   const load = useCallback(async () => {
     const [prods, mats] = await Promise.all([api.getProducts(), api.getRawMaterials()])
-    setProducts(prods)
-    setMaterials(mats)
-    setLoading(false)
+    setProducts(prods); setMaterials(mats); setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  // Sync a plain product's stock → matching RawMaterial (if registered as ingredient) → recalc
   const handleSaved = async (id: number, stock: number | null) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock } : p))
     if (stock === null) return
@@ -1471,7 +1262,6 @@ export default function InventoryPage() {
     recalcProductStocks()
   }
 
-  // Sync each variation's stock → matching RawMaterial ("Product — Variation") → recalc
   const handleVariationSaved = async (productId: number, updatedVariations: ProductVariation[]) => {
     setProducts(prev => prev.map(p => p.id === productId ? { ...p, variations: updatedVariations } : p))
     const product = products.find(p => p.id === productId)
@@ -1490,15 +1280,10 @@ export default function InventoryPage() {
     if (synced) recalcProductStocks()
   }
 
-  // Called when raw stock OR recipe links change.
-  // Groups by (product, variation_name), computes bottleneck yield, then:
-  //   – variation_name === '' → patches product.stock
-  //   – variation_name !== '' → patches the matching variation.stock inside product.variations
   const recalcProductStocks = useCallback(async () => {
     const [ings, mats] = await Promise.all([api.getProductIngredients(), api.getRawMaterials()])
-    setMaterials(mats)  // keep page-level materials in sync
+    setMaterials(mats)
 
-    // Group by "productId__variationName"
     const byEntry: Record<string, ProductIngredient[]> = {}
     for (const ing of ings) {
       const key = `${ing.product}__${ing.variation_name ?? ''}`
@@ -1507,13 +1292,12 @@ export default function InventoryPage() {
     }
 
     const plainPatches: Record<number, number> = {}
-    const varPatches: Record<number, Record<string, number>> = {}
+    const varPatches:   Record<number, Record<string, number>> = {}
 
     for (const [key, entries] of Object.entries(byEntry)) {
       const sep = key.indexOf('__')
-      const productId = parseInt(key.slice(0, sep))
+      const productId     = parseInt(key.slice(0, sep))
       const variationName = key.slice(sep + 2)
-
       let bottleneck: number | null = null
       for (const ing of entries) {
         const mat = mats.find(m => m.id === ing.raw_material)
@@ -1525,27 +1309,18 @@ export default function InventoryPage() {
         const servings = Math.floor((stockQty * yieldMin) / qtyPerServing)
         if (bottleneck === null || servings < bottleneck) bottleneck = servings
       }
-
       if (bottleneck === null) continue
-
-      if (variationName === '') {
-        plainPatches[productId] = bottleneck
-      } else {
-        if (!varPatches[productId]) varPatches[productId] = {}
-        varPatches[productId][variationName] = bottleneck
-      }
+      if (variationName === '') plainPatches[productId] = bottleneck
+      else { if (!varPatches[productId]) varPatches[productId] = {}; varPatches[productId][variationName] = bottleneck }
     }
 
     const calls: Promise<unknown>[] = []
-
-    for (const [pidStr, stock] of Object.entries(plainPatches)) {
+    for (const [pidStr, stock] of Object.entries(plainPatches))
       calls.push(api.updateProduct(parseInt(pidStr), { stock }).catch(() => {}))
-    }
 
-    // For each product with variation patches, send one PATCH with the full updated variations array
     for (const [pidStr, vMap] of Object.entries(varPatches)) {
       const productId = parseInt(pidStr)
-      const product = products.find(p => p.id === productId)
+      const product   = products.find(p => p.id === productId)
       if (!product) continue
       const updatedVariations = product.variations.map(v =>
         vMap[v.name] !== undefined ? { ...v, stock: vMap[v.name] } : v
@@ -1560,23 +1335,11 @@ export default function InventoryPage() {
       if (plainPatches[p.id] !== undefined) updated = { ...updated, stock: plainPatches[p.id] }
       if (varPatches[p.id]) {
         const vMap = varPatches[p.id]
-        updated = {
-          ...updated,
-          variations: updated.variations.map(v =>
-            vMap[v.name] !== undefined ? { ...v, stock: vMap[v.name] } : v
-          ),
-        }
+        updated = { ...updated, variations: updated.variations.map(v => vMap[v.name] !== undefined ? { ...v, stock: vMap[v.name] } : v) }
       }
       return updated
     }))
   }, [products])
-
-  const subtitle: Record<Tab, string> = {
-    stock:     'Track stock levels for your menu items',
-    raw_stock: 'Set ingredient quantities on hand — auto-calculates serving units available',
-    costing:   'Track raw ingredient costs and yield',
-    recipes:   'Link ingredients to menu items and estimate serving yield',
-  }
 
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
@@ -1585,27 +1348,22 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Inventory</h1>
-          <p className="text-sm text-gray-400 mt-0.5">{subtitle[tab]}</p>
+          <p className="text-sm text-gray-400 mt-0.5">{TAB_SUBTITLES[tab]}</p>
         </div>
-
         <div className="flex rounded-xl overflow-hidden border border-gray-200">
-          {(['stock', 'raw_stock', 'costing', 'recipes'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
+          {(['stock', 'ingredients', 'recipes'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm font-semibold transition-colors border-r border-gray-200 last:border-r-0
-                ${tab === t ? 'bg-brand text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
+                ${tab === t ? 'bg-brand text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
               {TAB_LABELS[t]}
             </button>
           ))}
         </div>
       </div>
 
-      {tab === 'stock'     && <StockTab products={products} onSaved={handleSaved} onVariationSaved={handleVariationSaved} />}
-      {tab === 'raw_stock' && <RawStockTab onStockChange={recalcProductStocks} />}
-      {tab === 'costing'   && <CostingTab />}
-      {tab === 'recipes'   && <RecipesTab onRecipeChanged={recalcProductStocks} />}
+      {tab === 'stock'       && <StockTab products={products} onSaved={handleSaved} onVariationSaved={handleVariationSaved} />}
+      {tab === 'ingredients' && <IngredientsTab onStockChange={recalcProductStocks} />}
+      {tab === 'recipes'     && <RecipesTab onRecipeChanged={recalcProductStocks} />}
     </div>
   )
 }
