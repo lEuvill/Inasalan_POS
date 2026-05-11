@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { api, Product, ProductVariation, RawMaterial, ProductIngredient, RawMaterialSnapshot } from '@/app/lib/api'
 
 // ─── Stock tab ────────────────────────────────────────────────────────────────
@@ -613,94 +613,289 @@ function fmtDateTime(iso: string) {
   const d = new Date(iso)
   return (
     d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' · ' +
+    '\n' +
     d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true })
   )
 }
 
-function SnapshotHistoryDrawer({
-  onClose,
-}: {
-  onClose: () => void
-}) {
+// ── Layout config (stored in localStorage) ───────────────────────────────────
+type LayoutConfig = {
+  categories: string[]                        // ordered category names
+  categoryItems: Record<string, number[]>     // category → ordered ingredient IDs
+}
+const LAYOUT_KEY = 'pos_ingredient_layout'
+function loadLayout(): LayoutConfig {
+  if (typeof window === 'undefined') return { categories: [], categoryItems: {} }
+  try { return JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? '{}') } catch { return { categories: [], categoryItems: {} } }
+}
+function persistLayout(l: LayoutConfig) { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)) }
+
+function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
   const [snapshots, setSnapshots] = useState<RawMaterialSnapshot[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [layout, setLayout]       = useState<LayoutConfig>(loadLayout)
+  const [editMode, setEditMode]   = useState(false)
+  const [addingCat, setAddingCat] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [snapOffset, setSnapOffset] = useState(0)
+  const SHOW = 5
 
   useEffect(() => {
     api.getSnapshots().then(s => { setSnapshots(s); setLoading(false) })
   }, [])
 
+  const updateLayout = useCallback((fn: (p: LayoutConfig) => LayoutConfig) => {
+    setLayout(prev => { const next = fn(prev); persistLayout(next); return next })
+  }, [])
+
+  // Union of all ingredients seen across every snapshot
+  const allIngredients = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; purchase_unit: string }>()
+    for (const snap of snapshots)
+      for (const e of snap.data)
+        if (!map.has(e.id)) map.set(e.id, e)
+    return Array.from(map.values())
+  }, [snapshots])
+
+  // Build grouped rows: defined categories (in order), then uncategorized
+  const grouped = useMemo(() => {
+    const allCategorized = new Set(Object.values(layout.categoryItems ?? {}).flat())
+    const result: { category: string; items: typeof allIngredients }[] = []
+
+    for (const cat of layout.categories ?? []) {
+      const orderedIds = layout.categoryItems?.[cat] ?? []
+      const items = orderedIds.map(id => allIngredients.find(i => i.id === id)).filter(Boolean) as typeof allIngredients
+      result.push({ category: cat, items })
+    }
+
+    const uncategorized = allIngredients.filter(i => !allCategorized.has(i.id))
+    if (uncategorized.length > 0 || editMode) result.push({ category: '', items: uncategorized })
+    return result
+  }, [allIngredients, layout, editMode])
+
+  const visibleSnaps = snapshots.slice(snapOffset, snapOffset + SHOW)
+
+  const getStock = (snap: RawMaterialSnapshot, id: number) => {
+    const e = snap.data.find(e => e.id === id)
+    return e ? parseFloat(e.stock_qty) : null
+  }
+
+  const assignCategory = (ingredientId: number, newCat: string) => {
+    updateLayout(prev => {
+      const ci = { ...prev.categoryItems }
+      for (const k of Object.keys(ci)) ci[k] = ci[k].filter(id => id !== ingredientId)
+      if (newCat) ci[newCat] = [...(ci[newCat] ?? []), ingredientId]
+      return { ...prev, categoryItems: ci }
+    })
+  }
+
+  const getIngCat = (id: number) =>
+    Object.entries(layout.categoryItems ?? {}).find(([, ids]) => ids.includes(id))?.[0] ?? ''
+
+  const moveIngredient = (cat: string, id: number, dir: -1 | 1) => {
+    if (!cat) return
+    updateLayout(prev => {
+      const ids = [...(prev.categoryItems?.[cat] ?? [])]
+      const idx = ids.indexOf(id)
+      if (idx < 0 || (dir === -1 && idx === 0) || (dir === 1 && idx === ids.length - 1)) return prev
+      ;[ids[idx], ids[idx + dir]] = [ids[idx + dir], ids[idx]]
+      return { ...prev, categoryItems: { ...(prev.categoryItems ?? {}), [cat]: ids } }
+    })
+  }
+
+  const moveCat = (cat: string, dir: -1 | 1) => {
+    updateLayout(prev => {
+      const cats = [...(prev.categories ?? [])]
+      const idx = cats.indexOf(cat)
+      if (idx < 0 || (dir === -1 && idx === 0) || (dir === 1 && idx === cats.length - 1)) return prev
+      ;[cats[idx], cats[idx + dir]] = [cats[idx + dir], cats[idx]]
+      return { ...prev, categories: cats }
+    })
+  }
+
+  const addCategory = (name: string) => {
+    const n = name.trim()
+    if (!n || (layout.categories ?? []).includes(n)) return
+    updateLayout(prev => ({ ...prev, categories: [...(prev.categories ?? []), n], categoryItems: { ...(prev.categoryItems ?? {}), [n]: [] } }))
+  }
+
+  const deleteCategory = (cat: string) => {
+    updateLayout(prev => ({
+      categories: (prev.categories ?? []).filter(c => c !== cat),
+      categoryItems: Object.fromEntries(Object.entries(prev.categoryItems ?? {}).filter(([k]) => k !== cat)),
+    }))
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-6xl bg-white shadow-2xl flex flex-col h-full">
 
-      {/* Drawer */}
-      <div className="relative w-full max-w-md bg-white shadow-2xl flex flex-col h-full">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div>
             <h2 className="text-base font-bold text-gray-800">Stock History</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Snapshots of ingredient stock over time</p>
+            <p className="text-xs text-gray-400 mt-0.5">Compare ingredient stock across snapshots — columns are saved points in time</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center text-xl">✕</button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setEditMode(e => !e); setAddingCat(false) }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${editMode ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {editMode ? '✓ Done' : '✏ Manage Layout'}
+            </button>
+            <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center text-xl">✕</button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {loading && (
-            <div className="text-center py-12 text-gray-400 text-sm">Loading…</div>
-          )}
+        {/* Category management bar */}
+        {editMode && (
+          <div className="px-5 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Categories:</span>
+            {(layout.categories ?? []).map((cat, ci) => (
+              <div key={cat} className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-lg px-1.5 py-0.5">
+                <button onClick={() => moveCat(cat, -1)} disabled={ci === 0} className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-[10px] px-0.5">◀</button>
+                <span className="text-xs font-semibold text-gray-700 px-1">{cat}</span>
+                <button onClick={() => moveCat(cat, 1)} disabled={ci === (layout.categories ?? []).length - 1} className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-[10px] px-0.5">▶</button>
+                <button onClick={() => deleteCategory(cat)} className="text-gray-200 hover:text-red-400 ml-0.5 text-[11px] leading-none">✕</button>
+              </div>
+            ))}
+            {addingCat ? (
+              <form className="flex items-center gap-1.5" onSubmit={e => { e.preventDefault(); addCategory(newCatName); setNewCatName(''); setAddingCat(false) }}>
+                <input autoFocus type="text" value={newCatName} onChange={e => setNewCatName(e.target.value)}
+                  onBlur={() => { if (!newCatName.trim()) setAddingCat(false) }}
+                  placeholder="Name…" className="border border-brand rounded-lg px-2.5 py-1 text-xs focus:outline-none w-28" />
+                <button type="submit" className="text-xs font-semibold text-brand">Add</button>
+                <button type="button" onClick={() => { setAddingCat(false); setNewCatName('') }} className="text-xs text-gray-400">✕</button>
+              </form>
+            ) : (
+              <button onClick={() => setAddingCat(true)} className="text-xs font-semibold text-brand hover:underline">+ New category</button>
+            )}
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="flex-1 overflow-auto">
+          {loading && <div className="text-center py-20 text-gray-400 text-sm">Loading…</div>}
+
           {!loading && snapshots.length === 0 && (
-            <div className="text-center py-16">
-              <p className="text-2xl mb-2">📋</p>
-              <p className="text-gray-500 font-medium text-sm">No snapshots yet</p>
-              <p className="text-xs text-gray-400 mt-1">Hit Save in the Ingredients tab to record the current stock levels.</p>
+            <div className="text-center py-24">
+              <p className="text-3xl mb-3">📋</p>
+              <p className="text-gray-600 font-semibold">No snapshots yet</p>
+              <p className="text-xs text-gray-400 mt-1.5">Hit Save in the Ingredients tab to record stock levels.</p>
             </div>
           )}
-          {snapshots.map((snap, idx) => {
-            const isOpen = expanded === snap.id
-            const isLatest = idx === 0
-            return (
-              <div key={snap.id} className={`rounded-2xl border overflow-hidden ${isLatest ? 'border-brand/30 bg-orange-50/30' : 'border-gray-100 bg-white'}`}>
-                <button
-                  className="w-full flex items-center justify-between px-4 py-3 text-left"
-                  onClick={() => setExpanded(isOpen ? null : snap.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    {isLatest && (
-                      <span className="text-[10px] font-bold bg-brand text-white px-2 py-0.5 rounded-full uppercase tracking-wide">Latest</span>
-                    )}
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{fmtDateTime(snap.saved_at)}</p>
-                      <p className="text-xs text-gray-400">{snap.data.length} ingredient{snap.data.length !== 1 ? 's' : ''} recorded</p>
-                    </div>
-                  </div>
-                  <span className="text-gray-400 text-sm">{isOpen ? '▾' : '▸'}</span>
-                </button>
 
-                {isOpen && (
-                  <div className="border-t border-gray-100 divide-y divide-gray-50">
-                    {snap.data.length === 0 ? (
-                      <p className="px-4 py-3 text-xs text-gray-400">No ingredients were recorded.</p>
-                    ) : (
-                      snap.data.map(entry => {
-                        const qty = parseFloat(entry.stock_qty)
-                        return (
-                          <div key={entry.id} className="flex items-center justify-between px-4 py-2.5">
-                            <span className="text-sm text-gray-700 font-medium">{entry.name}</span>
-                            <span className={`text-sm font-bold tabular-nums ${qty === 0 ? 'text-red-400' : qty <= 5 ? 'text-amber-500' : 'text-gray-800'}`}>
-                              {qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(2)} <span className="text-xs font-normal text-gray-400">{entry.purchase_unit}</span>
-                            </span>
+          {!loading && snapshots.length > 0 && allIngredients.length > 0 && (
+            <table className="w-full border-collapse" style={{ minWidth: `${200 + visibleSnaps.length * 130}px` }}>
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-white border-b-2 border-gray-100">
+                  <th className="text-left px-5 py-3 text-xs font-bold text-gray-400 uppercase tracking-wide sticky left-0 bg-white border-r border-gray-100 z-30 w-52">
+                    Ingredient
+                  </th>
+                  {visibleSnaps.map((snap, i) => {
+                    const isLatest = i === 0 && snapOffset === 0
+                    const lines = fmtDateTime(snap.saved_at).split('\n')
+                    return (
+                      <th key={snap.id} className={`px-4 py-2.5 text-center min-w-[130px] ${isLatest ? 'bg-orange-50' : 'bg-white'}`}>
+                        {isLatest && <div className="text-[9px] font-bold text-brand uppercase tracking-widest mb-0.5">Latest</div>}
+                        <div className={`text-xs font-semibold leading-tight ${isLatest ? 'text-brand' : 'text-gray-600'}`}>{lines[0]}</div>
+                        <div className="text-[10px] text-gray-400 leading-tight">{lines[1]}</div>
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {grouped.filter(g => g.items.length > 0 || (editMode && g.category !== '')).map(({ category, items }) => (
+                  <React.Fragment key={`grp-${category}`}>
+                    {/* Category header */}
+                    <tr className="bg-gray-50/80">
+                      <td colSpan={visibleSnaps.length + 1} className="px-5 py-1.5 sticky left-0 bg-gray-50/80">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                          {category || 'Uncategorized'}
+                        </span>
+                      </td>
+                    </tr>
+
+                    {/* Ingredient rows */}
+                    {items.map((ing, ingIdx) => (
+                      <tr key={ing.id} className="border-b border-gray-50 hover:bg-sky-50/30 group/row">
+                        <td className="px-4 py-2.5 sticky left-0 bg-white group-hover/row:bg-sky-50/30 border-r border-gray-100 z-10 w-52">
+                          <div className="flex items-start gap-2">
+                            {editMode && category && (
+                              <div className="flex flex-col gap-0 shrink-0 pt-0.5">
+                                <button onClick={() => moveIngredient(category, ing.id, -1)} disabled={ingIdx === 0}
+                                  className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-[9px] leading-snug">▲</button>
+                                <button onClick={() => moveIngredient(category, ing.id, 1)} disabled={ingIdx === items.length - 1}
+                                  className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-[9px] leading-snug">▼</button>
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gray-800 truncate leading-tight">{ing.name}</p>
+                              {editMode ? (
+                                <select
+                                  value={getIngCat(ing.id)}
+                                  onChange={e => assignCategory(ing.id, e.target.value)}
+                                  className="mt-1 w-full border border-gray-200 rounded px-1.5 py-0.5 text-xs text-gray-600 focus:outline-none focus:border-brand"
+                                >
+                                  <option value="">Uncategorized</option>
+                                  {(layout.categories ?? []).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                </select>
+                              ) : (
+                                <p className="text-[10px] text-gray-400 leading-tight">{ing.purchase_unit}</p>
+                              )}
+                            </div>
                           </div>
-                        )
-                      })
+                        </td>
+
+                        {visibleSnaps.map((snap, si) => {
+                          const qty = getStock(snap, ing.id)
+                          const isLatestCol = si === 0 && snapOffset === 0
+                          return (
+                            <td key={snap.id} className={`px-4 py-2.5 text-center ${isLatestCol ? 'bg-orange-50/40' : ''}`}>
+                              {qty === null ? (
+                                <span className="text-xs text-gray-200">—</span>
+                              ) : (
+                                <span className={`text-sm font-bold tabular-nums ${qty === 0 ? 'text-red-400' : qty <= 5 ? 'text-amber-500' : 'text-gray-800'}`}>
+                                  {qty % 1 === 0 ? qty : qty.toFixed(2)}
+                                  <span className="text-[10px] font-normal text-gray-400 ml-0.5">{ing.purchase_unit}</span>
+                                </span>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+
+                    {items.length === 0 && editMode && (
+                      <tr>
+                        <td colSpan={visibleSnaps.length + 1} className="px-5 py-2 text-xs text-gray-300 italic sticky left-0">
+                          No ingredients in this category yet
+                        </td>
+                      </tr>
                     )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+
+        {/* Snapshot pagination */}
+        {!loading && snapshots.length > SHOW && (
+          <div className="border-t border-gray-100 px-6 py-3 flex items-center justify-between shrink-0 bg-white">
+            <span className="text-xs text-gray-400">
+              Showing snapshots {snapOffset + 1}–{Math.min(snapOffset + SHOW, snapshots.length)} of {snapshots.length}
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => setSnapOffset(p => Math.max(0, p - SHOW))} disabled={snapOffset === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-30">← Newer</button>
+              <button onClick={() => setSnapOffset(p => Math.min(snapshots.length - SHOW, p + SHOW))} disabled={snapOffset + SHOW >= snapshots.length}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-30">Older →</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
