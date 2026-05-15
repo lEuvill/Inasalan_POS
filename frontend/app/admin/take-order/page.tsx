@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
-import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table } from '@/app/lib/api'
+import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table, OrderMode } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
 import { printReceipt, printCashierReceipt, printKitchenOrder, printGrillerOrder, ReceiptData } from '@/app/lib/printReceipt'
@@ -18,6 +18,7 @@ export default function TakeOrderPage() {
   const [pendingEdit, setPendingEdit] = useState<{ idx: number; item: OrderItem; product: Product } | null>(null)
   const [discountEdit, setDiscountEdit] = useState<{ idx: number; value: string } | null>(null)
   const [slipNumber, setSlipNumber]   = useState('')
+  const [ownerName, setOwnerName]     = useState('')
   const [orderType, setOrderType]     = useState<OrderType>('DINE_IN')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [step, setStep]               = useState<OrderStep>('cart')
@@ -37,6 +38,8 @@ export default function TakeOrderPage() {
   const [showDfConfig, setShowDfConfig] = useState(false)
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [orderMode, setOrderMode] = useState<OrderMode>('REGULAR')
+  const [showRecordPreview, setShowRecordPreview] = useState(false)
 
   useEffect(() => { api.getMenu().then(setProducts) }, [])
   useEffect(() => { api.getTables().then(ts => setTables(ts.filter(t => t.is_active))) }, [])
@@ -49,13 +52,20 @@ export default function TakeOrderPage() {
   }, [])
   useWebSocket((process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000') + '/ws/pos/', handleWsMessage)
 
+  const slipKey = (mode: OrderMode) =>
+    mode === 'REGULAR' ? 'pos_last_slip_number' : `pos_last_slip_number_${mode.toLowerCase()}`
+
+  const nextSlipFor = (mode: OrderMode) => {
+    const last = localStorage.getItem(slipKey(mode))
+    if (!last) return ''
+    const n = parseInt(last, 10)
+    return isNaN(n) ? '' : String(n + 1)
+  }
+
   useEffect(() => {
-    const last = localStorage.getItem('pos_last_slip_number')
-    if (last) {
-      const n = parseInt(last, 10)
-      setSlipNumber(isNaN(n) ? '' : String(n + 1))
-    }
-  }, [])
+    setSlipNumber(nextSlipFor(orderMode))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderMode])
 
   const grouped = useMemo(() => {
     const map: Record<string, Product[]> = {}
@@ -235,30 +245,35 @@ export default function TakeOrderPage() {
         total: roundedTotal,
         source: 'walk-in',
         order_type: orderType,
-        payment_method: paymentMethod,
+        order_mode: orderMode,
+        ...(orderMode === 'REGULAR' ? { payment_method: paymentMethod } : { status: 'COMPLETED' as const }),
         ...(slip ? { slip_number: slip } : {}),
         ...(tbl.trim() ? { table_number: tbl.trim() } : {}),
-        ...(isUnpaid ? { is_unpaid: true } : {}),
+        ...(isUnpaid && orderMode === 'REGULAR' ? { is_unpaid: true } : {}),
       })
-      if (slip) localStorage.setItem('pos_last_slip_number', slip)
+      if (slip) localStorage.setItem(slipKey(orderMode), slip)
 
-      // Build and print receipt
-      const receipt: ReceiptData = {
-        slipNumber: slip || undefined,
-        orderType,
-        paymentMethod,
-        tableNumber: tbl.trim() || undefined,
-        items: cart,
-        total: roundedTotal,
-        amountTendered: !isUnpaid && paymentMethod === 'CASH' && amountTendered ? parseFloat(amountTendered) : undefined,
-        isUnpaid,
-        date: new Date(),
+      if (orderMode === 'REGULAR') {
+        const receipt: ReceiptData = {
+          slipNumber: slip || undefined,
+          ownerName: ownerName.trim() || undefined,
+          orderType,
+          paymentMethod,
+          tableNumber: tbl.trim() || undefined,
+          items: cart,
+          total: roundedTotal,
+          amountTendered: !isUnpaid && paymentMethod === 'CASH' && amountTendered ? parseFloat(amountTendered) : undefined,
+          isUnpaid,
+          date: new Date(),
+        }
+        setLastReceiptData(receipt)
+        printReceipt(receipt)
+        printCashierReceipt(receipt)
+        printKitchenOrder(receipt)
+        void printGrillerOrder(receipt)
+      } else {
+        setLastReceiptData(null)
       }
-      setLastReceiptData(receipt)
-      printReceipt(receipt)
-      printCashierReceipt(receipt)
-      printKitchenOrder(receipt)
-      void printGrillerOrder(receipt)
 
       // Show success banner then auto-dismiss
       const placed: LastPlaced = { slip: slip || '—', total: roundedTotal, table: tbl.trim() }
@@ -271,11 +286,9 @@ export default function TakeOrderPage() {
       setStep('cart')
       setAmountTendered('')
       setTableNumber('')
+      setOwnerName('')
       setIsUnpaid(false)
-      if (slip) {
-        const n = parseInt(slip, 10)
-        if (!isNaN(n)) setSlipNumber(String(n + 1))
-      }
+      setSlipNumber(nextSlipFor(orderMode))
     } finally {
       setPlacing(false)
     }
@@ -349,7 +362,22 @@ export default function TakeOrderPage() {
         {/* Row 1: title + slip # */}
         <div className="flex items-center gap-4 px-6 py-3">
           <h1 className="text-base font-bold text-gray-800 shrink-0">Take Order</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Mode</span>
+            {([['REGULAR','Regular'],['EMPLOYEE','Employee'],['WASTE','Waste'],['BULK','Bulk']] as [OrderMode,string][]).map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setOrderMode(val)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  orderMode === val
+                    ? val === 'EMPLOYEE' ? 'bg-blue-500 text-white'
+                    : val === 'WASTE'    ? 'bg-red-500 text-white'
+                    : val === 'BULK'     ? 'bg-purple-500 text-white'
+                    : 'bg-brand text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >{label}</button>
+            ))}
+          </div>
+<div className="flex items-center gap-2">
             <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Slip #</label>
             <input
               type="text"
@@ -358,6 +386,16 @@ export default function TakeOrderPage() {
               onChange={e => setSlipNumber(e.target.value)}
               placeholder="e.g. 109850"
               className="w-36 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:border-brand tracking-wide"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Name</label>
+            <input
+              type="text"
+              value={ownerName}
+              onChange={e => setOwnerName(e.target.value)}
+              placeholder="Customer name"
+              className="w-44 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-brand"
             />
           </div>
         </div>
@@ -397,6 +435,19 @@ export default function TakeOrderPage() {
         </div>
 
       </div>
+
+      {/* ── Mode banner ── */}
+      {orderMode !== 'REGULAR' && (
+        <div className={`shrink-0 px-6 py-2 text-xs font-bold text-center tracking-wide ${
+          orderMode === 'EMPLOYEE' ? 'bg-blue-500 text-white' :
+          orderMode === 'BULK'     ? 'bg-purple-500 text-white' :
+          'bg-red-500 text-white'
+        }`}>
+          {orderMode === 'EMPLOYEE' ? '👤 EMPLOYEE MODE — payment skipped' :
+           orderMode === 'BULK'     ? '📦 BULK MODE — payment skipped' :
+           '🗑 WASTE MODE — payment skipped'}
+        </div>
+      )}
 
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
@@ -627,7 +678,24 @@ export default function TakeOrderPage() {
                       <button onClick={() => updateQty(idx, -1)}
                         disabled={isDfItem && item.quantity <= 1}
                         className="w-5 h-5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed">−</button>
-                      <span className="w-4 text-center text-xs font-bold text-gray-700">{item.quantity}</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onChange={e => {
+                          const v = parseInt(e.target.value, 10)
+                          if (!isNaN(v) && v >= 1) {
+                            setCart(prev => prev.map((ci, ii) => ii === idx ? { ...ci, quantity: v } : ci))
+                          }
+                        }}
+                        onBlur={e => {
+                          const v = parseInt(e.target.value, 10)
+                          if (isNaN(v) || v < 1) {
+                            setCart(prev => prev.map((ci, ii) => ii === idx ? { ...ci, quantity: 1 } : ci))
+                          }
+                        }}
+                        className="w-8 text-center text-xs font-bold text-gray-700 border border-gray-200 rounded focus:outline-none focus:border-brand"
+                      />
                       <button onClick={() => updateQty(idx, 1)}
                         className="w-5 h-5 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
                     </div>
@@ -643,25 +711,34 @@ export default function TakeOrderPage() {
               <span className="text-sm font-semibold text-gray-600">Total</span>
               <span className="text-xl font-bold text-brand">₱{total.toFixed(2)}</span>
             </div>
+            {orderMode === 'REGULAR' && (
+              <button
+                type="button"
+                onClick={() => setIsUnpaid(prev => !prev)}
+                className={`w-full py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                  isUnpaid
+                    ? 'border-red-400 bg-red-50 text-red-600'
+                    : 'border-dashed border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'
+                }`}
+              >
+                {isUnpaid ? '⚠ UNPAID — collect payment later' : '+ Mark as Unpaid'}
+              </button>
+            )}
             <button
-              type="button"
-              onClick={() => setIsUnpaid(prev => !prev)}
-              className={`w-full py-2 rounded-xl text-xs font-bold border-2 transition-all ${
-                isUnpaid
-                  ? 'border-red-400 bg-red-50 text-red-600'
-                  : 'border-dashed border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'
-              }`}
-            >
-              {isUnpaid ? '⚠ UNPAID — collect payment later' : '+ Mark as Unpaid'}
-            </button>
-            <button
-              onClick={() => { if (cart.length > 0) setStep('payment') }}
+              onClick={() => {
+                if (cart.length === 0) return
+                if (orderMode !== 'REGULAR') { setShowRecordPreview(true) } else { setStep('payment') }
+              }}
               disabled={cart.length === 0}
               className={`w-full text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-40 ${
-                isUnpaid ? 'bg-red-500 hover:bg-red-600' : 'bg-brand hover:bg-brand-dark'
+                orderMode === 'EMPLOYEE' ? 'bg-blue-500 hover:bg-blue-600' :
+                orderMode === 'WASTE'    ? 'bg-red-500 hover:bg-red-600' :
+                orderMode === 'BULK'     ? 'bg-purple-500 hover:bg-purple-600' :
+                isUnpaid                ? 'bg-red-500 hover:bg-red-600' :
+                'bg-brand hover:bg-brand-dark'
               }`}
             >
-              Place Order
+              {orderMode === 'WASTE' ? 'Record Waste' : orderMode === 'EMPLOYEE' ? 'Record Employee Order' : orderMode === 'BULK' ? 'Record Bulk Order' : 'Place Order'}
             </button>
             {cart.length > 0 && (
               <button onClick={() => setCart([])} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1">
@@ -672,6 +749,60 @@ export default function TakeOrderPage() {
         </div>
       </div>
     </div>
+
+    {/* ── Record preview modal (Employee / Waste) ── */}
+    {showRecordPreview && orderMode !== 'REGULAR' && (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className={`px-6 py-4 ${orderMode === 'EMPLOYEE' ? 'bg-blue-500' : orderMode === 'BULK' ? 'bg-purple-500' : 'bg-red-500'}`}>
+            <h2 className="text-base font-bold text-white">
+              {orderMode === 'EMPLOYEE' ? '👤 Employee Order' : orderMode === 'BULK' ? '📦 Bulk Order' : '🗑 Waste Record'}
+            </h2>
+            <p className="text-xs text-white/70 mt-0.5">Review before recording — no receipt will be printed</p>
+          </div>
+
+          <div className="px-5 py-4 max-h-72 overflow-y-auto space-y-1.5">
+            {cart.map((item, idx) => {
+              const disc = item.discount ?? 0
+              const effectivePrice = item.price * (1 - disc / 100)
+              return (
+                <div key={idx} className="flex items-center justify-between gap-3 py-1.5 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-700 flex-1">{item.quantity}× {item.name}</span>
+                  <span className="text-sm font-semibold text-gray-600 shrink-0">
+                    ₱{(effectivePrice * item.quantity).toFixed(2)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className={`mx-5 mb-4 px-4 py-2.5 rounded-xl flex justify-between items-center ${orderMode === 'EMPLOYEE' ? 'bg-blue-50' : orderMode === 'BULK' ? 'bg-purple-50' : 'bg-red-50'}`}>
+            <span className="text-sm font-semibold text-gray-600">Total</span>
+            <span className={`text-lg font-black ${orderMode === 'EMPLOYEE' ? 'text-blue-600' : orderMode === 'BULK' ? 'text-purple-600' : 'text-red-600'}`}>₱{total.toFixed(2)}</span>
+          </div>
+
+          <div className="px-5 pb-5 flex gap-3">
+            <button
+              onClick={() => setShowRecordPreview(false)}
+              className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50"
+            >
+              Back
+            </button>
+            <button
+              onClick={() => { setShowRecordPreview(false); void place('') }}
+              disabled={placing}
+              className={`flex-1 text-white font-bold py-3 rounded-xl text-sm transition-colors disabled:opacity-40 ${
+                orderMode === 'EMPLOYEE' ? 'bg-blue-500 hover:bg-blue-600' :
+                orderMode === 'BULK'     ? 'bg-purple-500 hover:bg-purple-600' :
+                'bg-red-500 hover:bg-red-600'
+              }`}
+            >
+              {placing ? 'Recording…' : 'Confirm & Record'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ── Delivery fee config modal ── */}
     {showDfConfig && (

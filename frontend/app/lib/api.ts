@@ -33,6 +33,7 @@ export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOI
 
 export type OrderType = 'DINE_IN' | 'TAKE_OUT' | 'DELIVERY' | 'PICK_UP'
 export type PaymentMethod = 'CASH' | 'GCASH'
+export type OrderMode = 'REGULAR' | 'EMPLOYEE' | 'WASTE' | 'BULK'
 
 export type Order = {
   id: number
@@ -46,6 +47,7 @@ export type Order = {
   status: OrderStatus
   source: string
   is_unpaid: boolean
+  order_mode: OrderMode
   created_at: string
   transaction?: Transaction
 }
@@ -61,7 +63,9 @@ export type Transaction = {
     slip_number: string | null
     order_type: OrderType | ''
     payment_method: PaymentMethod | ''
+    table_number: string
     items_json: OrderItem[]
+    order_mode: OrderMode
   }
 }
 
@@ -74,6 +78,7 @@ export type Table = {
 export type RawMaterial = {
   id: number
   name: string
+  category: string
   purchase_unit: string
   batch_qty: string
   batch_price: string
@@ -96,6 +101,22 @@ export type RawMaterialSnapshot = {
   id: number
   saved_at: string
   data: SnapshotEntry[]
+}
+
+export type SnapshotProjectionItem = {
+  id: number
+  name: string
+  purchase_unit: string
+  snapshot_qty: string
+  used_qty: string
+  remaining_qty: string
+}
+
+export type SnapshotProjection = {
+  snapshot_id: number
+  snapshot_saved_at: string
+  order_count: number
+  items: SnapshotProjectionItem[]
 }
 
 export type ProductIngredient = {
@@ -138,7 +159,7 @@ export const api = {
     request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
   getOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`),
-  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string; is_unpaid?: boolean }) =>
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string; is_unpaid?: boolean; order_mode?: OrderMode }) =>
     request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
   deleteOrder: (id: number) =>
     request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
@@ -146,7 +167,7 @@ export const api = {
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   voidOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status: 'VOIDED' }) }),
-  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod }) =>
+  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod; slip_number?: string }) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   markPaid: (id: number) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ is_unpaid: false }) }),
@@ -177,6 +198,12 @@ export const api = {
   // Ingredient Snapshots
   getSnapshots: () => request<RawMaterialSnapshot[]>('/api/raw-material-snapshots/'),
   createSnapshot: () => request<RawMaterialSnapshot>('/api/raw-material-snapshots/', { method: 'POST', body: JSON.stringify({}) }),
+  patchSnapshot: (id: number, data: { saved_at: string }) =>
+    request<RawMaterialSnapshot>(`/api/raw-material-snapshots/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSnapshot: (id: number) =>
+    request<void>(`/api/raw-material-snapshots/${id}/`, { method: 'DELETE' }),
+  getSnapshotProjection: (id: number) =>
+    request<SnapshotProjection>(`/api/raw-material-snapshots/${id}/projection/`),
 
   // Product Ingredients (Recipes)
   getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),

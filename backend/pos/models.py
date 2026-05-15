@@ -42,6 +42,12 @@ class Order(models.Model):
         CASH = 'CASH', 'Cash'
         GCASH = 'GCASH', 'GCash'
 
+    class OrderMode(models.TextChoices):
+        REGULAR  = 'REGULAR',  'Regular'
+        EMPLOYEE = 'EMPLOYEE', 'Employee'
+        WASTE    = 'WASTE',    'Waste'
+        BULK     = 'BULK',     'Bulk'
+
     android_id = models.IntegerField(unique=True, null=True, blank=True)
     slip_number = models.CharField(max_length=20, blank=True, null=True)
     order_type = models.CharField(max_length=20, choices=OrderType.choices, blank=True)
@@ -52,6 +58,7 @@ class Order(models.Model):
     source = models.CharField(max_length=10, default='web')  # 'web' or 'android'
     table_number = models.CharField(max_length=20, blank=True, default='')
     is_unpaid = models.BooleanField(default=False)
+    order_mode = models.CharField(max_length=20, choices=OrderMode.choices, default=OrderMode.REGULAR)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -81,6 +88,7 @@ class RawMaterial(models.Model):
     serving_unit = models.CharField(max_length=50)
     yield_min = models.DecimalField(max_digits=10, decimal_places=3)
     yield_max = models.DecimalField(max_digits=10, decimal_places=3)
+    category = models.CharField(max_length=100, blank=True, default='')
     stock_qty = models.DecimalField(max_digits=10, decimal_places=3, default=0)
     notes = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
