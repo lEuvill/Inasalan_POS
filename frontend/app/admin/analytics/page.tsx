@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { api, Transaction, Product } from '@/app/lib/api'
+import { api, Transaction, Product, OrderMode } from '@/app/lib/api'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -24,6 +24,8 @@ type Preset = 'today' | 'yesterday' | '7d' | '30d' | 'this_month' | 'last_month'
 type TopBy = 'revenue' | 'qty'
 type CatBy = 'revenue' | 'qty' | 'orders'
 type Bucket = 'hour' | 'day' | 'week' | 'month'
+
+const LS_ANALYTICS_MODES = 'pos_analytics_modes'
 
 const PRESETS: { key: Preset; label: string }[] = [
   { key: 'today',      label: 'Today' },
@@ -345,6 +347,23 @@ export default function AnalyticsPage() {
   const [topBy, setTopBy]               = useState<TopBy>('revenue')
   const [catBy, setCatBy]               = useState<CatBy>('revenue')
   const [topShowAll, setTopShowAll]     = useState(false)
+  const [includedModes, setIncludedModes] = useState<Set<OrderMode>>(() => {
+    if (typeof window === 'undefined') return new Set(['REGULAR'])
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_ANALYTICS_MODES) ?? '["REGULAR"]') as OrderMode[]
+      return new Set(saved)
+    } catch { return new Set(['REGULAR']) }
+  })
+
+  const toggleMode = (mode: OrderMode) => {
+    setIncludedModes(prev => {
+      const next = new Set(prev)
+      if (next.has(mode)) { if (next.size > 1) next.delete(mode) }
+      else next.add(mode)
+      localStorage.setItem(LS_ANALYTICS_MODES, JSON.stringify([...next]))
+      return next
+    })
+  }
 
   useEffect(() => {
     Promise.all([api.getTransactions(), api.getProducts()]).then(([txns, prods]) => {
@@ -363,8 +382,12 @@ export default function AnalyticsPage() {
     [start, end],
   )
 
-  const filtered     = useMemo(() => filterTx(transactions, start, end),         [transactions, start, end])
-  const prevFiltered = useMemo(() => filterTx(transactions, prevStart, prevEnd),  [transactions, prevStart, prevEnd])
+  const modeFiltered = useMemo(() =>
+    transactions.filter(t => includedModes.has(t.order_detail?.order_mode ?? 'REGULAR')),
+  [transactions, includedModes])
+
+  const filtered     = useMemo(() => filterTx(modeFiltered, start, end),         [modeFiltered, start, end])
+  const prevFiltered = useMemo(() => filterTx(modeFiltered, prevStart, prevEnd),  [modeFiltered, prevStart, prevEnd])
 
   const revenue     = useMemo(() => sumRevenue(filtered),     [filtered])
   const prevRevenue = useMemo(() => sumRevenue(prevFiltered), [prevFiltered])
@@ -432,6 +455,24 @@ export default function AnalyticsPage() {
               />
             </div>
           )}
+        </div>
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Data</span>
+          {(['REGULAR','EMPLOYEE','WASTE','BULK'] as OrderMode[]).map(mode => (
+            <button key={mode} type="button" onClick={() => toggleMode(mode)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors border ${
+                includedModes.has(mode)
+                  ? mode === 'EMPLOYEE' ? 'bg-blue-500 text-white border-blue-500'
+                  : mode === 'WASTE'    ? 'bg-red-500 text-white border-red-500'
+                  : mode === 'BULK'     ? 'bg-purple-500 text-white border-purple-500'
+                  : 'bg-brand text-white border-brand'
+                  : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {includedModes.has(mode) ? '✓ ' : ''}{mode.charAt(0) + mode.slice(1).toLowerCase()}
+            </button>
+          ))}
+          <span className="text-xs text-gray-300 ml-1">{modeFiltered.length} transactions</span>
         </div>
       </Card>
 
