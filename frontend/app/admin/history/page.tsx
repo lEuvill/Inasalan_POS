@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { api, Transaction, Product, OrderItem } from '@/app/lib/api'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { api, Transaction, Product, OrderItem, OrderMode } from '@/app/lib/api'
 import { EditOrderModal } from '@/app/admin/components/EditOrderModal'
 import { printReceipt, ReceiptData } from '@/app/lib/printReceipt'
 
@@ -164,6 +164,29 @@ function PaymentBadge({ method }: { method: string }) {
     </span>
   )
 }
+
+function ModeBadge({ mode }: { mode: OrderMode }) {
+  if (mode === 'REGULAR') return null
+  const styles: Record<string, string> = {
+    EMPLOYEE: 'bg-blue-100 text-blue-700',
+    WASTE:    'bg-red-100 text-red-600',
+    BULK:     'bg-purple-100 text-purple-700',
+  }
+  const labels: Record<string, string> = {
+    EMPLOYEE: 'Employee',
+    WASTE:    'Waste',
+    BULK:     'Bulk',
+  }
+  return (
+    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ml-1.5 ${styles[mode] ?? 'bg-gray-100 text-gray-500'}`}>
+      {labels[mode] ?? mode}
+    </span>
+  )
+}
+
+type ModeFilter = 'ALL' | OrderMode
+
+const LS_HISTORY_MODE = 'pos_history_mode_filter'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -477,6 +500,10 @@ export default function HistoryPage() {
   const [showExport, setShowExport] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [modeFilter, setModeFilter] = useState<ModeFilter>(() => {
+    if (typeof window === 'undefined') return 'ALL'
+    return (localStorage.getItem(LS_HISTORY_MODE) as ModeFilter) ?? 'ALL'
+  })
 
   const load = useCallback(async () => {
     const [txns, prods] = await Promise.all([api.getTransactions(), api.getProducts()])
@@ -485,6 +512,11 @@ export default function HistoryPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const changeModeFilter = (f: ModeFilter) => {
+    setModeFilter(f)
+    localStorage.setItem(LS_HISTORY_MODE, f)
+  }
 
   const deleteTransaction = async (orderId: number) => {
     setDeleting(true)
@@ -497,15 +529,21 @@ export default function HistoryPage() {
     }
   }
 
-  const total = transactions.reduce((sum, t) => sum + parseFloat(t.total), 0)
+  const displayed = useMemo(() =>
+    modeFilter === 'ALL'
+      ? transactions
+      : transactions.filter(t => (t.order_detail?.order_mode ?? 'REGULAR') === modeFilter),
+  [transactions, modeFilter])
+
+  const total = displayed.reduce((sum, t) => sum + parseFloat(t.total), 0)
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-800">Transaction History</h1>
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <p className="text-xs text-gray-400">All-time Revenue</p>
+            <p className="text-xs text-gray-400">{modeFilter === 'ALL' ? 'All-time Revenue' : `${modeFilter.charAt(0) + modeFilter.slice(1).toLowerCase()} Revenue`}</p>
             <p className="text-xl font-bold text-green-600">₱{total.toFixed(2)}</p>
           </div>
           <button
@@ -516,7 +554,7 @@ export default function HistoryPage() {
           </button>
           <button
             onClick={() => setShowExport(true)}
-            disabled={transactions.length === 0}
+            disabled={displayed.length === 0}
             className="bg-brand text-white font-semibold px-4 py-2 rounded-xl hover:bg-brand-dark text-sm transition-colors disabled:opacity-40"
           >
             Export
@@ -524,9 +562,29 @@ export default function HistoryPage() {
         </div>
       </div>
 
+      {/* ── Mode filter ── */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Show</span>
+        {([['ALL','All'],['REGULAR','Regular'],['EMPLOYEE','Employee'],['WASTE','Waste'],['BULK','Bulk']] as [ModeFilter,string][]).map(([val, label]) => (
+          <button key={val} type="button" onClick={() => changeModeFilter(val)}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+              modeFilter === val
+                ? val === 'EMPLOYEE' ? 'bg-blue-500 text-white'
+                : val === 'WASTE'    ? 'bg-red-500 text-white'
+                : val === 'BULK'     ? 'bg-purple-500 text-white'
+                : 'bg-brand text-white'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >{label}</button>
+        ))}
+        {transactions.length > 0 && (
+          <span className="text-xs text-gray-300 ml-1">{displayed.length} of {transactions.length}</span>
+        )}
+      </div>
+
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        {transactions.length === 0 ? (
-          <p className="text-gray-400 text-center py-16">No transactions yet</p>
+        {displayed.length === 0 ? (
+          <p className="text-gray-400 text-center py-16">{transactions.length === 0 ? 'No transactions yet' : 'No transactions match this filter'}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-400 text-xs uppercase">
@@ -540,14 +598,17 @@ export default function HistoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {transactions.map(t => (
+              {displayed.map(t => (
                 <tr key={t.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-4 text-gray-400">{t.id}</td>
                   <td className="px-5 py-4 font-medium text-gray-700">
-                    {t.order_detail?.slip_number
-                      ? <><span className="font-bold">Slip #{t.order_detail.slip_number}</span><span className="ml-1.5 text-xs text-gray-400">#{t.order}</span></>
-                      : <>Order #{t.order}</>
-                    }
+                    <span className="inline-flex items-center flex-wrap gap-y-0.5">
+                      {t.order_detail?.slip_number
+                        ? <><span className="font-bold">Slip #{t.order_detail.slip_number}</span><span className="ml-1.5 text-xs text-gray-400">#{t.order}</span></>
+                        : <>Order #{t.order}</>
+                      }
+                      <ModeBadge mode={t.order_detail?.order_mode ?? 'REGULAR'} />
+                    </span>
                   </td>
                   <td className="px-5 py-4 text-gray-500">
                     {new Date(t.completed_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -624,7 +685,7 @@ export default function HistoryPage() {
 
       {showExport && (
         <ExportModal
-          transactions={transactions}
+          transactions={displayed}
           products={products}
           onClose={() => setShowExport(false)}
         />
