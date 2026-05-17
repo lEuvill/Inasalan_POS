@@ -134,13 +134,14 @@ function buildTimeSeries(txns: Transaction[], start: Date, end: Date) {
   return [...map.entries()].map(([label, revenue]) => ({ label, revenue }))
 }
 
-function buildTopProducts(txns: Transaction[], by: TopBy, limit?: number) {
+function buildTopProducts(txns: Transaction[], by: TopBy, piecesMap: Map<number, number>, limit?: number) {
   const map = new Map<string, { qty: number; revenue: number }>()
   for (const t of txns) {
     for (const item of t.order_detail?.items_json ?? []) {
       const cur = map.get(item.name) ?? { qty: 0, revenue: 0 }
       const disc = item.discount ?? 0
-      cur.qty += item.quantity
+      const pieces = piecesMap.get(item.productId) ?? 1
+      cur.qty += item.quantity * pieces
       cur.revenue += item.price * (1 - disc / 100) * item.quantity
       map.set(item.name, cur)
     }
@@ -153,6 +154,7 @@ function buildTopProducts(txns: Transaction[], by: TopBy, limit?: number) {
 
 function buildCategoryData(txns: Transaction[], products: Product[]) {
   const catMap = new Map(products.map(p => [p.id, p.category || 'Uncategorized']))
+  const piecesMap = new Map(products.map(p => [p.id, p.pieces_per_serving ?? 1]))
   const map = new Map<string, { revenue: number; qty: number; orders: number }>()
   for (const t of txns) {
     const catsInTxn = new Set<string>()
@@ -160,8 +162,9 @@ function buildCategoryData(txns: Transaction[], products: Product[]) {
       const cat = catMap.get(item.productId) ?? 'Other'
       if (!map.has(cat)) map.set(cat, { revenue: 0, qty: 0, orders: 0 })
       const cur = map.get(cat)!
+      const pieces = piecesMap.get(item.productId) ?? 1
       cur.revenue += item.price * item.quantity
-      cur.qty += item.quantity
+      cur.qty += item.quantity * pieces
       catsInTxn.add(cat)
     }
     for (const cat of catsInTxn) map.get(cat)!.orders++
@@ -347,13 +350,13 @@ export default function AnalyticsPage() {
   const [topBy, setTopBy]               = useState<TopBy>('revenue')
   const [catBy, setCatBy]               = useState<CatBy>('revenue')
   const [topShowAll, setTopShowAll]     = useState(false)
-  const [includedModes, setIncludedModes] = useState<Set<OrderMode>>(() => {
-    if (typeof window === 'undefined') return new Set(['REGULAR'])
+  const [includedModes, setIncludedModes] = useState<Set<OrderMode>>(new Set(['REGULAR']))
+  useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(LS_ANALYTICS_MODES) ?? '["REGULAR"]') as OrderMode[]
-      return new Set(saved)
-    } catch { return new Set(['REGULAR']) }
-  })
+      setIncludedModes(new Set(saved))
+    } catch { /* keep default */ }
+  }, [])
 
   const toggleMode = (mode: OrderMode) => {
     setIncludedModes(prev => {
@@ -394,10 +397,12 @@ export default function AnalyticsPage() {
   const aov         = filtered.length     ? revenue     / filtered.length     : 0
   const prevAov     = prevFiltered.length ? prevRevenue / prevFiltered.length : 0
 
-  const timeSeries   = useMemo(() => buildTimeSeries(filtered, start, end),      [filtered, start, end])
-  const topProducts  = useMemo(() => buildTopProducts(filtered, topBy, 10),      [filtered, topBy])
-  const allProducts  = useMemo(() => buildTopProducts(filtered, topBy),          [filtered, topBy])
-  const topItem      = useMemo(() => buildTopProducts(filtered, 'qty', 1)[0],    [filtered])
+  const piecesMap    = useMemo(() => new Map(products.map(p => [p.id, p.pieces_per_serving ?? 1])), [products])
+
+  const timeSeries   = useMemo(() => buildTimeSeries(filtered, start, end),                   [filtered, start, end])
+  const topProducts  = useMemo(() => buildTopProducts(filtered, topBy, piecesMap, 10),        [filtered, topBy, piecesMap])
+  const allProducts  = useMemo(() => buildTopProducts(filtered, topBy, piecesMap),            [filtered, topBy, piecesMap])
+  const topItem      = useMemo(() => buildTopProducts(filtered, 'qty', piecesMap, 1)[0],      [filtered, piecesMap])
   const categoryData = useMemo(() => buildCategoryData(filtered, products),      [filtered, products])
   const orderTypeData = useMemo(() => buildOrderTypeData(filtered),              [filtered])
   const paymentData  = useMemo(() => buildPaymentData(filtered),                 [filtered])
@@ -499,7 +504,7 @@ export default function AnalyticsPage() {
         <StatCard
           label="Top Item"
           primary={topItem?.name ?? '—'}
-          secondary={topItem ? `${topItem.qty} sold · ${fmtPeso(topItem.revenue)}` : undefined}
+          secondary={topItem ? `${topItem.qty} pcs · ${fmtPeso(topItem.revenue)}` : undefined}
         />
       </div>
 
@@ -594,7 +599,7 @@ export default function AnalyticsPage() {
                         <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 w-10">#</th>
                           <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400">Product</th>
-                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Qty Sold</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Pieces</th>
                           <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Revenue</th>
                           <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 w-28">% of Total</th>
                         </tr>

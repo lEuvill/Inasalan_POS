@@ -15,6 +15,7 @@ class Product(models.Model):
     output_name = models.CharField(max_length=255, blank=True)
     output_code = models.CharField(max_length=50, blank=True)
     stock = models.IntegerField(null=True, blank=True)
+    pieces_per_serving = models.IntegerField(default=1)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

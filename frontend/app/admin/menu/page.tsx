@@ -6,8 +6,8 @@ import { api, Product, ProductVariation } from '@/app/lib/api'
 type ExportProduct = Omit<Product, 'id' | 'android_id' | 'stock'>
 
 function exportMenu(products: Product[]) {
-  const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, output_name }) => ({
-    name, price, category, image_path, is_available, variations, output_name,
+  const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, output_name, pieces_per_serving }) => ({
+    name, price, category, image_path, is_available, variations, output_name, pieces_per_serving,
   }))
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -98,6 +98,7 @@ const BLANK: Omit<Product, 'id' | 'android_id'> = {
   variations: [],
   output_name: '',
   stock: null,
+  pieces_per_serving: 1,
 }
 
 // ── Drag-and-drop image picker ────────────────────────────────────────────────
@@ -390,7 +391,7 @@ export default function MenuPage() {
 
   const openCreate = () => { setForm(BLANK); setEditId(null); setShowForm(true) }
   const openEdit = (p: Product) => {
-    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], output_name: p.output_name ?? '', stock: p.stock ?? null })
+    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], output_name: p.output_name ?? '', stock: p.stock ?? null, pieces_per_serving: p.pieces_per_serving ?? 1 })
     setEditId(p.id)
     setShowForm(true)
   }
@@ -552,6 +553,19 @@ export default function MenuPage() {
                 <input type="checkbox" checked={form.is_available} onChange={e => setForm(f => ({ ...f, is_available: e.target.checked }))} className="accent-brand" />
                 Available on menu
               </label>
+
+              <div className="border-t border-gray-100 pt-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Pieces per serving</label>
+                <p className="text-[11px] text-gray-400 mb-1.5">How many pieces counted per order (e.g. 2 for a 2-pc wings meal). Used in analytics qty.</p>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brand"
+                  value={form.pieces_per_serving ?? 1}
+                  onChange={e => setForm(f => ({ ...f, pieces_per_serving: Math.max(1, parseInt(e.target.value) || 1) }))}
+                />
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">

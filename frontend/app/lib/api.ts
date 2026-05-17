@@ -18,6 +18,7 @@ export type Product = {
   variations: ProductVariation[]
   output_name: string
   stock: number | null
+  pieces_per_serving: number
 }
 
 export type OrderItem = {
