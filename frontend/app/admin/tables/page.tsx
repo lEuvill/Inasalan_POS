@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { api, Table } from '@/app/lib/api'
+import QRCode from 'react-qr-code'
 
 export default function TablesPage() {
   const [tables, setTables] = useState<Table[]>([])
@@ -10,6 +11,7 @@ export default function TablesPage() {
   const [editId, setEditId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const [qrTable, setQrTable] = useState<Table | null>(null)
 
   const load = useCallback(() => api.getTables().then(setTables), [])
   useEffect(() => { load() }, [load])
@@ -108,6 +110,7 @@ export default function TablesPage() {
                     onConfirmDelete={() => setConfirmDeleteId(t.id)}
                     onCancelDelete={() => setConfirmDeleteId(null)}
                     onDelete={() => deleteTable(t.id)}
+                    onShowQr={() => setQrTable(t)}
                   />
                 ))}
               </div>
@@ -133,6 +136,7 @@ export default function TablesPage() {
                     onConfirmDelete={() => setConfirmDeleteId(t.id)}
                     onCancelDelete={() => setConfirmDeleteId(null)}
                     onDelete={() => deleteTable(t.id)}
+                    onShowQr={() => setQrTable(t)}
                   />
                 ))}
               </div>
@@ -140,6 +144,83 @@ export default function TablesPage() {
           )}
         </>
       )}
+
+      {qrTable && (
+        <QrModal table={qrTable} onClose={() => setQrTable(null)} />
+      )}
+    </div>
+  )
+}
+
+function QrModal({ table, onClose }: { table: Table; onClose: () => void }) {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? ''
+  const lanHost = apiBase ? new URL(apiBase).hostname : window.location.hostname
+  const menuUrl = `http://${lanHost}:3000/menu?table=${encodeURIComponent(table.name)}`
+
+  const handlePrint = () => {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const svgEl = document.getElementById('qr-svg')
+    const svgContent = svgEl ? svgEl.outerHTML : ''
+    win.document.write(`
+      <html><head><title>QR — ${table.name}</title>
+      <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; }
+        h2 { font-size: 24px; margin-bottom: 8px; }
+        p { font-size: 12px; color: #888; margin-bottom: 24px; word-break: break-all; max-width: 240px; text-align: center; }
+        svg { width: 240px; height: 240px; }
+      </style></head>
+      <body>
+        <h2>${table.name}</h2>
+        <p>${menuUrl}</p>
+        ${svgContent}
+        <script>window.onload = () => { window.print(); window.close(); }<\/script>
+      </body></html>
+    `)
+    win.document.close()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-5 max-w-xs w-full mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="w-full flex items-center justify-between">
+          <div>
+            <p className="text-lg font-bold text-gray-800">{table.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Scan to order</p>
+          </div>
+          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-3 border-2 border-gray-100 rounded-xl">
+          <QRCode
+            id="qr-svg"
+            value={menuUrl}
+            size={200}
+            bgColor="#ffffff"
+            fgColor="#1a1a1a"
+          />
+        </div>
+
+        <p className="text-xs text-gray-400 text-center break-all">{menuUrl}</p>
+
+        <div className="flex gap-3 w-full">
+          <button
+            onClick={handlePrint}
+            className="flex-1 bg-brand text-white font-bold py-2.5 rounded-xl text-sm hover:bg-brand-dark transition-colors"
+          >
+            Print QR
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-200 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -157,6 +238,7 @@ function TableCard({
   onConfirmDelete,
   onCancelDelete,
   onDelete,
+  onShowQr,
 }: {
   table: Table
   editId: number | null
@@ -170,6 +252,7 @@ function TableCard({
   onConfirmDelete: () => void
   onCancelDelete: () => void
   onDelete: () => void
+  onShowQr: () => void
 }) {
   const isEditing = editId === table.id
   const isConfirmingDelete = confirmDeleteId === table.id
@@ -193,12 +276,23 @@ function TableCard({
           />
         </form>
       ) : (
-        <button
-          onClick={onStartEdit}
-          className="text-left text-sm font-bold text-gray-800 hover:text-brand transition-colors leading-tight"
-        >
-          {table.name}
-        </button>
+        <div className="flex items-center justify-between gap-1">
+          <button
+            onClick={onStartEdit}
+            className="text-left text-sm font-bold text-gray-800 hover:text-brand transition-colors leading-tight flex-1 min-w-0 truncate"
+          >
+            {table.name}
+          </button>
+          {table.is_active && (
+            <button
+              onClick={onShowQr}
+              title="Show QR code"
+              className="shrink-0 text-gray-300 hover:text-brand transition-colors text-base leading-none"
+            >
+              ▦
+            </button>
+          )}
+        </div>
       )}
 
       {/* Actions */}

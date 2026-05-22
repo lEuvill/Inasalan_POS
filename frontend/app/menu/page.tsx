@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { api, Product, Order, OrderItem, OrderStatus, ProductVariation } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
@@ -24,7 +25,10 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
 
 type CartItem = OrderItem & { key: number }
 
-export default function MenuPage() {
+function MenuPageInner() {
+  const searchParams = useSearchParams()
+  const tableParam = searchParams.get('table') ?? ''
+
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [activeOrder, setActiveOrder] = useState<Order | null>(null)
@@ -63,7 +67,6 @@ export default function MenuPage() {
   }
 
   const pushToCart = (productId: number, name: string, price: number) => {
-    // Warn if item is at or over its stock limit
     const product = products.find(p => p.id === productId)
     if (product) {
       let stock: number | null = null
@@ -133,6 +136,8 @@ export default function MenuPage() {
         items_json: cart.map(({ key, ...rest }) => rest),
         total: cartTotal,
         source: 'web',
+        order_type: 'DINE_IN',
+        ...(tableParam ? { table_number: tableParam } : {}),
       })
       setActiveOrder(order)
       setCart([])
@@ -150,6 +155,9 @@ export default function MenuPage() {
             {activeOrder.status === 'READY' ? '🛎️' : activeOrder.status === 'COMPLETED' ? '✅' : '⏳'}
           </p>
           <h2 className="text-xl font-bold mb-2">Order #{activeOrder.id}</h2>
+          {tableParam && (
+            <p className="text-xs font-semibold mb-1 opacity-70">Table: {tableParam}</p>
+          )}
           <p className="text-sm font-medium">{STATUS_LABEL[activeOrder.status]}</p>
           <p className="mt-4 font-bold text-lg">Total: ₱{parseFloat(activeOrder.total).toFixed(2)}</p>
           {activeOrder.status === 'COMPLETED' && (
@@ -173,7 +181,10 @@ export default function MenuPage() {
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-brand">INASALAN</h1>
-            <p className="text-xs text-gray-400">Order at your table</p>
+            {tableParam
+              ? <p className="text-xs font-semibold text-amber-600">Table: {tableParam}</p>
+              : <p className="text-xs text-gray-400">Order at your table</p>
+            }
           </div>
           <button
             onClick={() => setShowCart(true)}
@@ -216,19 +227,16 @@ export default function MenuPage() {
             const inCart = cartCountFor(product.id)
             const singleEntry = !hasVariations ? cart.find(i => i.productId === product.id) : null
 
-            // Out of stock: for variation products, true only when every variation is depleted
             const outOfStock = hasVariations
               ? product.variations.every(v =>
                   v.stock === 0 || (v.stock != null && variationCartQty(product.name, v.name) >= v.stock)
                 )
               : product.stock === 0
 
-            // Remaining stock after what's in cart (non-variation only)
             const remaining = !hasVariations && product.stock != null
               ? Math.max(0, product.stock - inCart)
               : null
 
-            // Non-variation: disable + when cart is at stock limit
             const atLimit = !hasVariations && product.stock != null && inCart >= product.stock
 
             return (
@@ -264,14 +272,15 @@ export default function MenuPage() {
                       >−</button>
                       <span className="text-sm font-semibold text-gray-800 w-4 text-center">{singleEntry.quantity}</span>
                       <button
-                        onClick={() => updateQty(singleEntry.name, 1)}
-                        className="w-7 h-7 rounded-full bg-brand text-white font-bold hover:bg-brand-dark flex items-center justify-center"
+                        onClick={() => !atLimit && updateQty(singleEntry.name, 1)}
+                        className={`w-7 h-7 rounded-full text-white font-bold flex items-center justify-center ${atLimit ? 'bg-gray-300 cursor-not-allowed' : 'bg-brand hover:bg-brand-dark'}`}
                       >+</button>
                     </div>
                   ) : (
                     <button
                       onClick={() => addToCart(product)}
-                      className="mt-2 w-full bg-brand text-white text-xs font-semibold py-1.5 rounded-xl hover:bg-brand-dark transition-colors flex items-center justify-center gap-1"
+                      disabled={outOfStock}
+                      className="mt-2 w-full bg-brand text-white text-xs font-semibold py-1.5 rounded-xl hover:bg-brand-dark transition-colors flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {hasVariations && inCart > 0 ? `Add more (${inCart})` : 'Add'}
                     </button>
@@ -296,7 +305,10 @@ export default function MenuPage() {
           <div className="flex-1 bg-black/40" onClick={() => setShowCart(false)} />
           <div className="w-full max-w-sm bg-white flex flex-col shadow-2xl">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-lg font-bold">Your Order</h2>
+              <div>
+                <h2 className="text-lg font-bold">Your Order</h2>
+                {tableParam && <p className="text-xs text-amber-600 font-semibold">Table: {tableParam}</p>}
+              </div>
               <button onClick={() => setShowCart(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-5 space-y-3">
@@ -353,5 +365,17 @@ export default function MenuPage() {
       />
     )}
     </>
+  )
+}
+
+export default function MenuPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading menu...</p>
+      </div>
+    }>
+      <MenuPageInner />
+    </Suspense>
   )
 }
