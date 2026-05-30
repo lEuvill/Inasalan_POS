@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { api, Product, ProductVariation, RawMaterial, ProductIngredient, RawMaterialSnapshot } from '@/app/lib/api'
+import { api, Product, ProductVariation, RawMaterial, ProductIngredient, RawMaterialSnapshot, SnapshotProjection } from '@/app/lib/api'
+import { printInventorySheet, printSnapshotSheet } from '@/app/lib/printReceipt'
 
 // ─── Stock tab ────────────────────────────────────────────────────────────────
 
@@ -270,14 +271,14 @@ function StockTab({
 // ─── Ingredients tab ──────────────────────────────────────────────────────────
 
 type RawForm = {
-  name: string; purchase_unit: string
+  name: string; category: string; purchase_unit: string
   batch_qty: string; batch_price: string
   serving_unit: string; yield_min: string; yield_max: string
   stock_qty: string; notes: string
 }
 
 const BLANK_FORM: RawForm = {
-  name: '', purchase_unit: '', batch_qty: '', batch_price: '',
+  name: '', category: '', purchase_unit: '', batch_qty: '', batch_price: '',
   serving_unit: '', yield_min: '', yield_max: '', stock_qty: '', notes: '',
 }
 
@@ -302,11 +303,12 @@ function fmtPeso(n: number) {
 }
 
 function RawMaterialModal({
-  initial, onSave, onClose,
+  initial, onSave, onClose, existingCategories,
 }: {
   initial?: RawMaterial
   onSave: (form: RawForm) => Promise<void>
   onClose: () => void
+  existingCategories: string[]
 }) {
   const hasCostingData = initial
     ? parseFloat(initial.batch_price) > 0
@@ -315,7 +317,8 @@ function RawMaterialModal({
   const [form, setForm] = useState<RawForm>(
     initial
       ? {
-          name: initial.name, purchase_unit: initial.purchase_unit,
+          name: initial.name, category: initial.category ?? '',
+          purchase_unit: initial.purchase_unit,
           batch_qty: initial.batch_qty, batch_price: initial.batch_price,
           serving_unit: initial.serving_unit, yield_min: initial.yield_min,
           yield_max: initial.yield_max, stock_qty: initial.stock_qty ?? '',
@@ -375,6 +378,20 @@ function RawMaterialModal({
 
           {/* Always-required fields */}
           {inp('Ingredient Name', 'name', { placeholder: 'e.g. Rice, Chicken, Cooking Oil', required: true, autoFocus: !initial })}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Category <span className="font-normal text-gray-400">(optional)</span></label>
+            <input
+              list="rawmat-categories"
+              value={form.category}
+              onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
+              placeholder="e.g. Meat, Grains, Sauce…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-brand"
+            />
+            <datalist id="rawmat-categories">
+              {existingCategories.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             {inp('Purchase Unit', 'purchase_unit', { placeholder: 'kg, pc, L, bag…', required: true })}
@@ -515,7 +532,8 @@ function IngredientRow({
   const cost = costPerServing({
     batch_qty: item.batch_qty, batch_price: item.batch_price,
     yield_min: item.yield_min, yield_max: item.yield_max,
-    name: item.name, purchase_unit: item.purchase_unit,
+    name: item.name, category: item.category ?? '',
+    purchase_unit: item.purchase_unit,
     serving_unit: item.serving_unit, stock_qty: item.stock_qty, notes: item.notes,
   })
 
@@ -630,14 +648,20 @@ function loadLayout(): LayoutConfig {
 }
 function persistLayout(l: LayoutConfig) { localStorage.setItem(LAYOUT_KEY, JSON.stringify(l)) }
 
-function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
+function SnapshotHistoryDrawer({ onClose, fontSize }: { onClose: () => void; fontSize: number }) {
   const [snapshots, setSnapshots] = useState<RawMaterialSnapshot[]>([])
   const [loading, setLoading]     = useState(true)
-  const [layout, setLayout]       = useState<LayoutConfig>(loadLayout)
+  const [layout, setLayout]       = useState<LayoutConfig>({ categories: [], categoryItems: {} })
+  useEffect(() => { setLayout(loadLayout()) }, [])
   const [editMode, setEditMode]   = useState(false)
   const [addingCat, setAddingCat] = useState(false)
   const [newCatName, setNewCatName] = useState('')
   const [snapOffset, setSnapOffset] = useState(0)
+  const [editingSnapId, setEditingSnapId]   = useState<number | null>(null)
+  const [editingSnapDate, setEditingSnapDate] = useState('')
+  const [savingSnapDate, setSavingSnapDate] = useState(false)
+  const [projections, setProjections] = useState<Record<number, SnapshotProjection | 'loading'>>({})
+  const [activeProjections, setActiveProjections] = useState<Set<number>>(new Set())
   const SHOW = 5
 
   useEffect(() => {
@@ -726,6 +750,82 @@ function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
     }))
   }
 
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const startEditSnap = (snap: RawMaterialSnapshot) => {
+    setEditingSnapId(snap.id)
+    setEditingSnapDate(toLocalInput(snap.saved_at))
+  }
+
+  const saveSnapDate = async (id: number) => {
+    if (!editingSnapDate) return
+    setSavingSnapDate(true)
+    try {
+      const updated = await api.patchSnapshot(id, { saved_at: new Date(editingSnapDate).toISOString() })
+      setSnapshots(prev => prev.map(s => s.id === id ? updated : s))
+      setEditingSnapId(null)
+    } finally {
+      setSavingSnapDate(false)
+    }
+  }
+
+  const toggleProjection = async (id: number) => {
+    if (activeProjections.has(id)) {
+      setActiveProjections(prev => { const s = new Set(prev); s.delete(id); return s })
+      return
+    }
+    setActiveProjections(prev => new Set(prev).add(id))
+    if (projections[id]) return
+    setProjections(prev => ({ ...prev, [id]: 'loading' }))
+    try {
+      const result = await api.getSnapshotProjection(id)
+      setProjections(prev => ({ ...prev, [id]: result }))
+    } catch {
+      setProjections(prev => { const n = { ...prev }; delete n[id]; return n })
+      setActiveProjections(prev => { const s = new Set(prev); s.delete(id); return s })
+    }
+  }
+
+  const handlePrintSnapshot = (snap: RawMaterialSnapshot) => {
+    // Build a map from this snapshot's own data so quantities always resolve
+    const snapById = new Map(snap.data.map(e => [e.id, e]))
+    const printed = new Set<number>()
+    const printGroups: { category: string; items: { name: string; purchase_unit: string; stock_qty: number | null }[] }[] = []
+
+    // Apply layout categories where possible
+    for (const g of grouped) {
+      const items: { name: string; purchase_unit: string; stock_qty: number | null }[] = []
+      for (const ing of g.items) {
+        const e = snapById.get(ing.id)
+        if (!e) continue
+        printed.add(ing.id)
+        const qty = parseFloat(e.stock_qty)
+        items.push({ name: e.name, purchase_unit: e.purchase_unit, stock_qty: isNaN(qty) ? null : qty })
+      }
+      if (items.length > 0) printGroups.push({ category: g.category, items })
+    }
+
+    // Any snapshot entries not matched by the layout (or if layout is empty)
+    const extra = snap.data
+      .filter(e => !printed.has(e.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    if (extra.length > 0) {
+      printGroups.push({
+        category: '',
+        items: extra.map(e => {
+          const qty = parseFloat(e.stock_qty)
+          return { name: e.name, purchase_unit: e.purchase_unit, stock_qty: isNaN(qty) ? null : qty }
+        }),
+      })
+    }
+
+    printSnapshotSheet(snap.saved_at, printGroups, fontSize)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -796,11 +896,77 @@ function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
                   {visibleSnaps.map((snap, i) => {
                     const isLatest = i === 0 && snapOffset === 0
                     const lines = fmtDateTime(snap.saved_at).split('\n')
+                    const isEditing = editingSnapId === snap.id
                     return (
-                      <th key={snap.id} className={`px-4 py-2.5 text-center min-w-[130px] ${isLatest ? 'bg-orange-50' : 'bg-white'}`}>
+                      <th key={snap.id} className={`px-4 py-2.5 text-center min-w-[150px] ${isLatest ? 'bg-orange-50' : 'bg-white'}`}>
                         {isLatest && <div className="text-[9px] font-bold text-brand uppercase tracking-widest mb-0.5">Latest</div>}
-                        <div className={`text-xs font-semibold leading-tight ${isLatest ? 'text-brand' : 'text-gray-600'}`}>{lines[0]}</div>
-                        <div className="text-[10px] text-gray-400 leading-tight">{lines[1]}</div>
+                        {isEditing ? (
+                          <div className="flex flex-col items-center gap-1.5">
+                            <input
+                              type="datetime-local"
+                              value={editingSnapDate}
+                              onChange={e => setEditingSnapDate(e.target.value)}
+                              className="w-full border border-brand rounded px-1.5 py-1 text-xs text-gray-800 focus:outline-none"
+                            />
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => saveSnapDate(snap.id)}
+                                disabled={savingSnapDate}
+                                className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded hover:bg-brand-dark disabled:opacity-40"
+                              >{savingSnapDate ? '…' : 'Save'}</button>
+                              <button
+                                onClick={() => setEditingSnapId(null)}
+                                className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded hover:bg-gray-200"
+                              >Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="group/col relative">
+                            <div className={`text-xs font-semibold leading-tight ${isLatest ? 'text-brand' : 'text-gray-600'}`}>{lines[0]}</div>
+                            <div className="text-[10px] text-gray-400 leading-tight">{lines[1]}</div>
+                            {/* Projection badge */}
+                            {activeProjections.has(snap.id) && (
+                              <div className="mt-1">
+                                {projections[snap.id] === 'loading' ? (
+                                  <span className="text-[9px] text-gray-400">Loading…</span>
+                                ) : projections[snap.id] ? (
+                                  <span className="text-[9px] font-semibold text-blue-500">
+                                    📦 {(projections[snap.id] as SnapshotProjection).order_count} orders deducted
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
+                            <div className="absolute -top-1 -right-1 flex gap-0.5 opacity-0 group-hover/col:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => toggleProjection(snap.id)}
+                                title={activeProjections.has(snap.id) ? 'Hide projection' : 'Project order deductions'}
+                                className={`w-5 h-5 rounded text-[10px] flex items-center justify-center transition-colors
+                                  ${activeProjections.has(snap.id) ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-blue-500 hover:text-white text-gray-400'}`}
+                              >📊</button>
+                              <button
+                                onClick={() => handlePrintSnapshot(snap)}
+                                title="Print this snapshot"
+                                className="w-5 h-5 rounded bg-gray-100 hover:bg-brand hover:text-white text-gray-400 text-[10px] flex items-center justify-center"
+                              >🖨</button>
+                              <button
+                                onClick={() => startEditSnap(snap)}
+                                title="Edit date"
+                                className="w-5 h-5 rounded bg-gray-100 hover:bg-brand hover:text-white text-gray-400 text-[10px] flex items-center justify-center"
+                              >✏</button>
+                              <button
+                                onClick={() => {
+                                  if (confirm('Delete this snapshot?')) {
+                                    api.deleteSnapshot(snap.id).then(() =>
+                                      setSnapshots(prev => prev.filter(s => s.id !== snap.id))
+                                    )
+                                  }
+                                }}
+                                title="Delete snapshot"
+                                className="w-5 h-5 rounded bg-gray-100 hover:bg-red-500 hover:text-white text-gray-400 text-[10px] flex items-center justify-center"
+                              >🗑</button>
+                            </div>
+                          </div>
+                        )}
                       </th>
                     )
                   })}
@@ -852,10 +1018,28 @@ function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
                         {visibleSnaps.map((snap, si) => {
                           const qty = getStock(snap, ing.id)
                           const isLatestCol = si === 0 && snapOffset === 0
+                          const proj = activeProjections.has(snap.id) && projections[snap.id] !== 'loading'
+                            ? (projections[snap.id] as SnapshotProjection | undefined)?.items.find(p => p.id === ing.id)
+                            : null
+                          const remaining = proj ? parseFloat(proj.remaining_qty) : null
+                          const usedQty   = proj ? parseFloat(proj.used_qty) : null
                           return (
                             <td key={snap.id} className={`px-4 py-2.5 text-center ${isLatestCol ? 'bg-orange-50/40' : ''}`}>
                               {qty === null ? (
                                 <span className="text-xs text-gray-200">—</span>
+                              ) : proj ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-[10px] text-gray-400 tabular-nums line-through">
+                                    {qty % 1 === 0 ? qty : qty.toFixed(2)}
+                                  </span>
+                                  {usedQty !== null && usedQty > 0 && (
+                                    <span className="text-[9px] text-red-400 tabular-nums">−{usedQty % 1 === 0 ? usedQty : usedQty.toFixed(2)}</span>
+                                  )}
+                                  <span className={`text-sm font-bold tabular-nums ${remaining === 0 ? 'text-red-500' : remaining! <= 5 ? 'text-amber-500' : 'text-blue-600'}`}>
+                                    {remaining! % 1 === 0 ? remaining : remaining!.toFixed(2)}
+                                    <span className="text-[10px] font-normal text-gray-400 ml-0.5">{ing.purchase_unit}</span>
+                                  </span>
+                                </div>
                               ) : (
                                 <span className={`text-sm font-bold tabular-nums ${qty === 0 ? 'text-red-400' : qty <= 5 ? 'text-amber-500' : 'text-gray-800'}`}>
                                   {qty % 1 === 0 ? qty : qty.toFixed(2)}
@@ -901,6 +1085,8 @@ function SnapshotHistoryDrawer({ onClose }: { onClose: () => void }) {
   )
 }
 
+type SortKey = 'name' | 'stock' | 'cost'
+
 function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
   const [materials, setMaterials]   = useState<RawMaterial[]>([])
   const [loading, setLoading]       = useState(true)
@@ -909,6 +1095,14 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
   const [showHistory, setShowHistory] = useState(false)
   const [saving, setSaving]         = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
+  const [printFontSize, setPrintFontSize] = useState(() => {
+    if (typeof window === 'undefined') return 11
+    return parseInt(localStorage.getItem('pos_print_sheet_fontsize') ?? '11', 10) || 11
+  })
+  const [search, setSearch]         = useState('')
+  const [sortKey, setSortKey]       = useState<SortKey>('name')
+  const [sortAsc, setSortAsc]       = useState(true)
+  const [collapsed, setCollapsed]   = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setMaterials(await api.getRawMaterials())
@@ -952,20 +1146,81 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
     }
   }
 
+  const handlePrintList = () => printInventorySheet(materials, printFontSize, 'list', { areaColumns: [], rowHeightMm: 8, colPaddingMm: 3 })
+
+  const setAndSaveFontSize = (v: number) => {
+    setPrintFontSize(v)
+    localStorage.setItem('pos_print_sheet_fontsize', String(v))
+  }
+
+  const existingCategories = useMemo(
+    () => [...new Set(materials.map(m => m.category).filter(Boolean))].sort(),
+    [materials],
+  )
+
+  const cycleSort = (key: SortKey) => {
+    if (sortKey === key) setSortAsc(v => !v)
+    else { setSortKey(key); setSortAsc(true) }
+  }
+
+  const sortIcon = (key: SortKey) => {
+    if (sortKey !== key) return <span className="text-gray-300 text-[10px]">↕</span>
+    return <span className="text-brand text-[10px]">{sortAsc ? '↑' : '↓'}</span>
+  }
+
   if (loading) return <div className="text-gray-400 text-sm py-10 text-center">Loading…</div>
 
-  const stocked = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
+  const stocked    = materials.filter(m => (parseFloat(m.stock_qty) || 0) > 0).length
   const withCosting = materials.filter(m => costPerServing({
     batch_qty: m.batch_qty, batch_price: m.batch_price, yield_min: m.yield_min,
-    yield_max: m.yield_max, name: m.name, purchase_unit: m.purchase_unit,
+    yield_max: m.yield_max, name: m.name, category: m.category ?? '',
+    purchase_unit: m.purchase_unit,
     serving_unit: m.serving_unit, stock_qty: m.stock_qty, notes: m.notes,
   }) !== null).length
+
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? materials.filter(m => m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q))
+    : materials
+
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0
+    if (sortKey === 'name') {
+      cmp = a.name.localeCompare(b.name)
+    } else if (sortKey === 'stock') {
+      cmp = (parseFloat(a.stock_qty) || 0) - (parseFloat(b.stock_qty) || 0)
+    } else {
+      const ca = costPerServing({ batch_qty: a.batch_qty, batch_price: a.batch_price, yield_min: a.yield_min, yield_max: a.yield_max, name: a.name, category: a.category ?? '', purchase_unit: a.purchase_unit, serving_unit: a.serving_unit, stock_qty: a.stock_qty, notes: a.notes })
+      const cb = costPerServing({ batch_qty: b.batch_qty, batch_price: b.batch_price, yield_min: b.yield_min, yield_max: b.yield_max, name: b.name, category: b.category ?? '', purchase_unit: b.purchase_unit, serving_unit: b.serving_unit, stock_qty: b.stock_qty, notes: b.notes })
+      cmp = (ca?.low ?? 0) - (cb?.low ?? 0)
+    }
+    return sortAsc ? cmp : -cmp
+  })
+
+  // Group by category; uncategorized goes last
+  const grouped: { label: string; items: RawMaterial[] }[] = []
+  if (q) {
+    grouped.push({ label: '', items: sorted })
+  } else {
+    const catMap = new Map<string, RawMaterial[]>()
+    for (const m of sorted) {
+      const cat = m.category || ''
+      if (!catMap.has(cat)) catMap.set(cat, [])
+      catMap.get(cat)!.push(m)
+    }
+    const named = [...catMap.entries()].filter(([k]) => k !== '').sort(([a], [b]) => a.localeCompare(b))
+    const uncategorized = catMap.get('') ?? []
+    for (const [label, items] of named) grouped.push({ label, items })
+    if (uncategorized.length) grouped.push({ label: '', items: uncategorized })
+  }
+
+  const hasCategories = existingCategories.length > 0
 
   return (
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-4 min-w-0">
           {materials.length > 0 && (
             <>
@@ -978,6 +1233,38 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Print buttons */}
+          <div className="flex items-stretch rounded-xl border border-gray-200 overflow-hidden shrink-0">
+            <button
+              onClick={() => setAndSaveFontSize(Math.max(8, printFontSize - 1))}
+              disabled={printFontSize <= 8}
+              title="Decrease font size"
+              className="px-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 disabled:opacity-30 transition-colors border-r border-gray-200"
+            >A−</button>
+            <span className="px-2.5 flex items-center text-xs font-semibold text-gray-500 tabular-nums select-none border-r border-gray-200">
+              {printFontSize}px
+            </span>
+            <button
+              onClick={() => setAndSaveFontSize(Math.min(16, printFontSize + 1))}
+              disabled={printFontSize >= 16}
+              title="Increase font size"
+              className="px-2.5 text-sm font-bold text-gray-500 hover:bg-gray-100 disabled:opacity-30 transition-colors border-r border-gray-200"
+            >A+</button>
+            <button
+              onClick={handlePrintList}
+              disabled={materials.length === 0}
+              title="Print ingredient list"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-500 hover:text-brand hover:bg-orange-50 disabled:opacity-40 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"/>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                <rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              List
+            </button>
+          </div>
+
           {/* History button */}
           <button
             onClick={() => setShowHistory(true)}
@@ -1024,6 +1311,39 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
         </div>
       </div>
 
+      {/* Search + Sort toolbar */}
+      {materials.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-40">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search ingredients…"
+              className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:border-brand"
+            />
+          </div>
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {(['name', 'stock', 'cost'] as SortKey[]).map(key => (
+              <button
+                key={key}
+                onClick={() => cycleSort(key)}
+                className={`flex items-center gap-1 px-3 py-1 rounded-md text-xs font-semibold transition-colors capitalize ${
+                  sortKey === key
+                    ? 'bg-white text-gray-800 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {key} {sortIcon(key)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
       {materials.length === 0 && (
         <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-200">
@@ -1038,26 +1358,66 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
         </div>
       )}
 
+      {/* No search results */}
+      {materials.length > 0 && filtered.length === 0 && (
+        <div className="text-center py-12 bg-white rounded-2xl border border-gray-100">
+          <p className="text-gray-400 text-sm">No ingredients match <span className="font-semibold text-gray-600">"{search}"</span></p>
+          <button onClick={() => setSearch('')} className="mt-2 text-xs text-brand hover:underline">Clear search</button>
+        </div>
+      )}
+
       {/* Table */}
-      {materials.length > 0 && (
+      {materials.length > 0 && filtered.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Column headers */}
           <div className="flex items-center gap-4 px-5 py-3 bg-gray-50 border-b border-gray-100">
             <span className="w-44 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide">Ingredient</span>
             <span className="text-xs font-bold text-gray-400 uppercase tracking-wide shrink-0" style={{ width: '148px' }}>Stock on Hand</span>
             <span className="w-36 shrink-0 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Serving Units Avail.</span>
             <span className="flex-1 text-xs font-bold text-gray-400 uppercase tracking-wide text-right">Cost / Serving</span>
           </div>
-          <div className="px-5">
-            {materials.map(m => (
-              <IngredientRow
-                key={m.id}
-                item={m}
-                onStockSaved={handleStockSaved}
-                onEdit={() => openEdit(m)}
-                onDelete={() => handleDelete(m.id)}
-              />
-            ))}
-          </div>
+
+          {grouped.map(({ label, items }) => {
+            const key = label || '__none__'
+            const isCollapsed = collapsed.has(key)
+            const toggleCollapse = () => setCollapsed(prev => {
+              const next = new Set(prev)
+              next.has(key) ? next.delete(key) : next.add(key)
+              return next
+            })
+            return (
+              <div key={key}>
+                {/* Category header — only when categories exist and not in search mode */}
+                {hasCategories && !q && (
+                  <button
+                    type="button"
+                    onClick={toggleCollapse}
+                    className="w-full flex items-center gap-2 px-5 pt-3 pb-1.5 text-left hover:bg-gray-50 group transition-colors"
+                  >
+                    <span className={`text-gray-300 group-hover:text-gray-500 transition-transform duration-150 ${isCollapsed ? '-rotate-90' : ''}`}
+                      style={{ display: 'inline-block', fontSize: '10px', lineHeight: 1 }}>▼</span>
+                    <span className="text-[10px] font-bold text-gray-400 group-hover:text-gray-600 uppercase tracking-widest transition-colors">
+                      {label || 'Uncategorized'}
+                    </span>
+                    <span className="text-[10px] text-gray-300 ml-1">{items.length}</span>
+                  </button>
+                )}
+                {!isCollapsed && (
+                  <div className="px-5">
+                    {items.map(m => (
+                      <IngredientRow
+                        key={m.id}
+                        item={m}
+                        onStockSaved={handleStockSaved}
+                        onEdit={() => openEdit(m)}
+                        onDelete={() => handleDelete(m.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -1072,10 +1432,11 @@ function IngredientsTab({ onStockChange }: { onStockChange: () => void }) {
           initial={editing ?? undefined}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditing(null) }}
+          existingCategories={existingCategories}
         />
       )}
 
-      {showHistory && <SnapshotHistoryDrawer onClose={() => setShowHistory(false)} />}
+      {showHistory && <SnapshotHistoryDrawer onClose={() => setShowHistory(false)} fontSize={printFontSize} />}
     </div>
   )
 }
@@ -1297,7 +1658,7 @@ function RecipesTab({ onRecipeChanged }: { onRecipeChanged: () => void }) {
     setRegistering(true)
     try {
       const m = await api.createRawMaterial({
-        name, purchase_unit: 'pc', batch_qty: '1', batch_price: price,
+        name, category: '', purchase_unit: 'pc', batch_qty: '1', batch_price: price,
         serving_unit: 'pc', yield_min: '1', yield_max: '1', stock_qty: String(stock ?? 0),
         notes: selectedVariationName ? `Linked from "${selectedProduct.name}" (${selectedVariationName})` : `Linked from "${selectedProduct.name}"`,
       })
