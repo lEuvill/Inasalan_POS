@@ -1,5 +1,6 @@
 import csv
 import json as _json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -597,11 +598,13 @@ class DataSyncView(APIView):
     def _git(self, *args):
         return subprocess.run(
             ['git', '-C', str(_REPO_ROOT), *args],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding='utf-8', errors='replace',
         )
 
     def _push(self):
         try:
+            if not shutil.which('git'):
+                return Response({'error': 'git is not installed or not in PATH on this machine.'}, status=500)
             _DATA_DIR.mkdir(exist_ok=True)
             for key in _SYNC_ORDER:
                 self._write_table_csv(key)
@@ -628,6 +631,8 @@ class DataSyncView(APIView):
 
     def _pull(self):
         try:
+            if not shutil.which('git'):
+                return Response({'error': 'git is not installed or not in PATH on this machine.'}, status=500)
             r = self._git('pull', '--ff-only')
             if r.returncode != 0:
                 return Response({'error': f'git pull: {(r.stderr or r.stdout).strip()}'}, status=500)
