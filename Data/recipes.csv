@@ -1,0 +1,30 @@
+id,raw_material_name,serving_unit,purchase_unit,stock_qty,yield_min,yield_max,qty_per_serving,variation_name,product,raw_material
+28,BBQ,pc,1,13.000,1.000,1.000,2.000,Meal,9,13
+29,BBQ,pc,1,13.000,1.000,1.000,2.000,Unli,9,13
+30,BBQ,pc,1,13.000,1.000,1.000,1.000,Only,9,13
+31,BBQ,pc,1,13.000,1.000,1.000,1.000,One Piece Only,9,13
+32,BBQ,pc,1,13.000,1.000,1.000,1.000,One Piece Meal,9,13
+42,Bottled Water,pc,pc,1.000,1.000,1.000,1.000,Bottled,12,23
+33,Coke 1.5,pc,pc,8.750,1.000,1.000,0.250,1 Glass,1,14
+34,Coke 1.5,pc,pc,8.750,1.000,1.000,1.000,1.5,1,14
+35,Coke Mismo,pc,pc,0.000,1.000,1.000,1.000,Mismo,1,15
+17,Leg,pc,pc,66.000,1.000,1.000,1.000,Meal,10,9
+18,Leg,pc,pc,66.000,1.000,1.000,1.000,Unli,10,9
+19,Leg,pc,pc,66.000,1.000,1.000,1.000,Only,10,9
+43,Liempo,pc,pc,21.000,1.000,1.000,1.000,Meal,8,12
+44,Liempo,pc,pc,21.000,1.000,1.000,1.000,Unli,8,12
+45,Liempo,pc,pc,21.000,1.000,1.000,1.000,Only,8,12
+20,Pakpak,pc,pc,133.000,1.000,1.000,2.000,Meal,11,11
+21,Pakpak,pc,pc,133.000,1.000,1.000,2.000,Unli,11,11
+22,Pakpak,pc,pc,133.000,1.000,1.000,2.000,Only,11,11
+23,Pakpak,pc,pc,133.000,1.000,1.000,1.000,One Piece Only,11,11
+24,Pakpak,pc,pc,133.000,1.000,1.000,1.000,One Piece Meal,11,11
+25,Pecho,pc,pc,26.000,1.000,1.000,1.000,Meal,7,10
+26,Pecho,pc,pc,26.000,1.000,1.000,1.000,Unli,7,10
+27,Pecho,pc,pc,26.000,1.000,1.000,1.000,Only,7,10
+36,Royal 1.5,pc,pc,0.000,1.000,1.000,1.000,1.5,4,17
+38,Royal 1.5,pc,pc,0.000,1.000,1.000,0.250,1 Glass,4,17
+37,Royal Mismo,pc,pc,16.000,1.000,1.000,1.000,Mismo,4,18
+39,Sprite 1.5,pc,pc,1.000,1.000,1.000,1.000,1.5,5,20
+40,Sprite 1.5,pc,pc,1.000,1.000,1.000,0.250,1 Glass,5,20
+41,Sprite Mismo,pc,pc,13.000,1.000,1.000,1.000,Mismo,5,21
