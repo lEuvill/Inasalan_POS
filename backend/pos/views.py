@@ -4,6 +4,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+csv.field_size_limit(10 * 1024 * 1024)  # 10 MB — orders/items_json can be large
+
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.db.models import F
