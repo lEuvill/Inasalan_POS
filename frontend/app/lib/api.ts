@@ -266,6 +266,14 @@ export const api = {
   deleteAccount: (id: number) =>
     request<void>(`/api/cash-accounts/${id}/`, { method: 'DELETE' }),
 
+  // GitHub data sync
+  dataSyncPush: () =>
+    request<{ message: string }>('/api/data-sync/', { method: 'POST', body: JSON.stringify({ action: 'push' }) }),
+  dataSyncPull: () =>
+    request<{ already_up_to_date: boolean; results: Record<string, { created: number; updated: number; errors: number } | null> }>(
+      '/api/data-sync/', { method: 'POST', body: JSON.stringify({ action: 'pull' }) },
+    ),
+
   // Product Ingredients (Recipes)
   getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),
   createProductIngredient: (data: { product: number; raw_material: number; qty_per_serving: string; variation_name?: string }) =>

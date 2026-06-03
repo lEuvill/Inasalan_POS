@@ -1,4 +1,7 @@
+import csv
 import json as _json
+import subprocess
+from pathlib import Path
 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -446,106 +449,200 @@ class ExpenseViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR  = _REPO_ROOT / 'Data'
+
+_IMPORT_SKIP = {
+    'products':      {'updated_at'},
+    'orders':        {'created_at', 'updated_at', 'transaction'},
+    'transactions':  {'order_detail'},
+    'tables':        set(),
+    'raw_materials': {'updated_at'},
+    'recipes':       {'raw_material_name', 'serving_unit', 'purchase_unit',
+                      'stock_qty', 'yield_min', 'yield_max'},
+    'expenses':      {'created_at', 'account_name'},
+    'cash_accounts': {'created_at'},
+}
+_IMPORT_JSON = {
+    'products': {'variations'},
+    'orders':   {'items_json'},
+    'expenses': {'items'},
+}
+_IMPORT_BOOL = {
+    'products': {'is_available'},
+    'orders':   {'is_unpaid'},
+    'tables':   {'is_active'},
+}
+_IMPORT_INT = {
+    'products':     {'android_id', 'stock', 'pieces_per_serving'},
+    'orders':       {'android_id'},
+    'transactions': {'android_id'},
+}
+_IMPORT_FK = {
+    'transactions': {'order'},
+    'recipes':      {'product', 'raw_material'},
+    'expenses':     {'account'},
+}
+_IMPORT_MODEL = {
+    'products':      Product,
+    'orders':        Order,
+    'transactions':  Transaction,
+    'tables':        Table,
+    'raw_materials': RawMaterial,
+    'recipes':       ProductIngredient,
+    'expenses':      Expense,
+    'cash_accounts': CashAccount,
+}
+
+
+def _do_bulk_import(table: str, rows: list) -> dict:
+    Model    = _IMPORT_MODEL[table]
+    skip_set = _IMPORT_SKIP.get(table, set())
+    json_set = _IMPORT_JSON.get(table, set())
+    bool_set = _IMPORT_BOOL.get(table, set())
+    int_set  = _IMPORT_INT.get(table, set())
+    fk_set   = _IMPORT_FK.get(table, set())
+
+    created = updated = errors = 0
+    for raw in rows:
+        try:
+            row = {}
+            for k, v in raw.items():
+                if k in skip_set:
+                    continue
+                empty = v == '' or v is None
+                if k in json_set:
+                    row[k] = _json.loads(v) if (not empty and isinstance(v, str)) else ([] if empty else v)
+                elif k in bool_set:
+                    row[k] = str(v).lower() in ('true', '1', 'yes')
+                elif k in int_set:
+                    row[k] = int(float(str(v))) if not empty else None
+                elif k in fk_set:
+                    row[k + '_id'] = int(float(str(v))) if not empty else None
+                else:
+                    row[k] = v if v is not None else ''
+
+            raw_id = row.pop('id', None)
+            if raw_id is not None:
+                try:
+                    row_id = int(float(str(raw_id)))
+                except (ValueError, TypeError):
+                    row_id = None
+            else:
+                row_id = None
+
+            if row_id is not None:
+                _, was_created = Model.objects.update_or_create(pk=row_id, defaults=row)
+            else:
+                Model.objects.create(**row)
+                was_created = True
+
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+        except Exception:
+            errors += 1
+
+    return {'created': created, 'updated': updated, 'errors': errors}
+
+
 class BulkImportView(APIView):
-    # Fields to skip per table (auto-timestamps, computed serializer fields)
-    _SKIP = {
-        'products':      {'updated_at'},
-        'orders':        {'created_at', 'updated_at'},
-        'transactions':  {'order_detail'},
-        'tables':        set(),
-        'raw_materials': {'updated_at'},
-        'recipes':       {'raw_material_name', 'serving_unit', 'purchase_unit',
-                          'stock_qty', 'yield_min', 'yield_max'},
-        'expenses':      {'created_at', 'account_name'},
-        'cash_accounts': {'created_at'},
-    }
-    _JSON   = {
-        'products': {'variations'},
-        'orders':   {'items_json'},
-        'expenses': {'items'},
-    }
-    _BOOL = {
-        'products': {'is_available'},
-        'orders':   {'is_unpaid'},
-        'tables':   {'is_active'},
-    }
-    # Nullable integer fields (empty string → None)
-    _INT = {
-        'products':     {'android_id', 'stock', 'pieces_per_serving'},
-        'orders':       {'android_id'},
-        'transactions': {'android_id'},
-    }
-    # FK fields — stored as <field>_id in DB, value is an int
-    _FK = {
-        'transactions': {'order'},
-        'recipes':      {'product', 'raw_material'},
-        'expenses':     {'account'},
-    }
-    _MODEL = {
-        'products':      Product,
-        'orders':        Order,
-        'transactions':  Transaction,
-        'tables':        Table,
-        'raw_materials': RawMaterial,
-        'recipes':       ProductIngredient,
-        'expenses':      Expense,
-        'cash_accounts': CashAccount,
-    }
-
     def post(self, request, table):
-        if table not in self._MODEL:
+        if table not in _IMPORT_MODEL:
             return Response({'error': f'Unknown table: {table}'}, status=400)
-
         rows = request.data.get('rows', [])
         if not isinstance(rows, list):
             return Response({'error': 'rows must be a list'}, status=400)
+        return Response(_do_bulk_import(table, rows))
 
-        Model      = self._MODEL[table]
-        skip_set   = self._SKIP.get(table, set())
-        json_set   = self._JSON.get(table, set())
-        bool_set   = self._BOOL.get(table, set())
-        int_set    = self._INT.get(table, set())
-        fk_set     = self._FK.get(table, set())
 
-        created = updated = errors = 0
-        for raw in rows:
-            try:
-                row = {}
-                for k, v in raw.items():
-                    if k in skip_set:
-                        continue
-                    empty = v == '' or v is None
-                    if k in json_set:
-                        row[k] = _json.loads(v) if (not empty and isinstance(v, str)) else ([] if empty else v)
-                    elif k in bool_set:
-                        row[k] = str(v).lower() in ('true', '1', 'yes')
-                    elif k in int_set:
-                        row[k] = int(float(str(v))) if not empty else None
-                    elif k in fk_set:
-                        row[k + '_id'] = int(float(str(v))) if not empty else None
-                    else:
-                        row[k] = v if v is not None else ''
+_SYNC_ORDER = ['products', 'tables', 'raw_materials', 'cash_accounts',
+               'orders', 'transactions', 'recipes', 'expenses']
 
-                raw_id = row.pop('id', None)
-                if raw_id is not None:
-                    try:
-                        row_id = int(float(str(raw_id)))
-                    except (ValueError, TypeError):
-                        row_id = None
-                else:
-                    row_id = None
+_SYNC_SERIALIZER = {
+    'products':      (Product,           ProductSerializer),
+    'tables':        (Table,             TableSerializer),
+    'raw_materials': (RawMaterial,       RawMaterialSerializer),
+    'cash_accounts': (CashAccount,       CashAccountSerializer),
+    'orders':        (Order,             OrderSerializer),
+    'transactions':  (Transaction,       TransactionSerializer),
+    'recipes':       (ProductIngredient, ProductIngredientSerializer),
+    'expenses':      (Expense,           ExpenseSerializer),
+}
 
-                if row_id is not None:
-                    _, was_created = Model.objects.update_or_create(pk=row_id, defaults=row)
-                else:
-                    Model.objects.create(**row)
-                    was_created = True
 
-                if was_created:
-                    created += 1
-                else:
-                    updated += 1
-            except Exception:
-                errors += 1
+class DataSyncView(APIView):
+    def post(self, request):
+        action = request.data.get('action')
+        if action == 'push':
+            return self._push()
+        if action == 'pull':
+            return self._pull()
+        return Response({'error': 'action must be push or pull'}, status=400)
 
-        return Response({'created': created, 'updated': updated, 'errors': errors})
+    def _write_table_csv(self, key):
+        Model, Serializer = _SYNC_SERIALIZER[key]
+        data = [dict(row) for row in Serializer(Model.objects.all(), many=True).data]
+        headers = list(Serializer().fields.keys()) if not data else list(data[0].keys())
+        with open(_DATA_DIR / f'{key}.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for row in data:
+                writer.writerow({
+                    k: (_json.dumps(v) if isinstance(v, (dict, list)) else ('' if v is None else str(v)))
+                    for k, v in row.items()
+                })
+
+    def _git(self, *args):
+        return subprocess.run(
+            ['git', '-C', str(_REPO_ROOT), *args],
+            capture_output=True, text=True,
+        )
+
+    def _push(self):
+        try:
+            _DATA_DIR.mkdir(exist_ok=True)
+            for key in _SYNC_ORDER:
+                self._write_table_csv(key)
+
+            r = self._git('add', 'Data/')
+            if r.returncode != 0:
+                return Response({'error': f'git add: {r.stderr.strip()}'}, status=500)
+
+            ts = timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')
+            r = self._git('commit', '-m', f'Data sync {ts}')
+            if r.returncode != 0:
+                if 'nothing to commit' in (r.stdout + r.stderr).lower():
+                    return Response({'message': 'Up to date — nothing changed since last push.'})
+                return Response({'error': f'git commit: {(r.stderr or r.stdout).strip()}'}, status=500)
+
+            r = self._git('push')
+            if r.returncode != 0:
+                return Response({'error': f'git push: {(r.stderr or r.stdout).strip()}'}, status=500)
+
+            commit = self._git('rev-parse', '--short', 'HEAD').stdout.strip()
+            return Response({'message': f'Pushed — commit {commit} · {ts}'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+    def _pull(self):
+        try:
+            r = self._git('pull', '--ff-only')
+            if r.returncode != 0:
+                return Response({'error': f'git pull: {(r.stderr or r.stdout).strip()}'}, status=500)
+
+            already_up_to_date = 'already up to date' in (r.stdout + r.stderr).lower()
+            results = {}
+            for key in _SYNC_ORDER:
+                csv_path = _DATA_DIR / f'{key}.csv'
+                if not csv_path.exists():
+                    results[key] = None
+                    continue
+                with open(csv_path, 'r', encoding='utf-8-sig', newline='') as f:
+                    rows = [row for row in csv.DictReader(f) if any(v.strip() for v in row.values())]
+                results[key] = _do_bulk_import(key, rows)
+
+            return Response({'already_up_to_date': already_up_to_date, 'results': results})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)

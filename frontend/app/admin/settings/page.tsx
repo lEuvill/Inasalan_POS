@@ -103,6 +103,9 @@ export default function SettingsPage() {
   const [importLoading,   setImportLoading]   = useState<Record<string, boolean>>({})
   const [importResult,    setImportResult]    = useState<Record<string, ImportResult | string>>({})
 
+  const [syncLoading,  setSyncLoading]  = useState<'push' | 'pull' | null>(null)
+  const [syncResult,   setSyncResult]   = useState<{ ok: boolean; text: string } | null>(null)
+
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   // ── Export ──────────────────────────────────────────────────────────────────
@@ -168,6 +171,43 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSyncPush() {
+    setSyncLoading('push')
+    setSyncResult(null)
+    try {
+      const res = await api.dataSyncPush()
+      setSyncResult({ ok: true, text: res.message })
+    } catch (err) {
+      setSyncResult({ ok: false, text: String(err) })
+    } finally {
+      setSyncLoading(null)
+    }
+  }
+
+  async function handleSyncPull() {
+    setSyncLoading('pull')
+    setSyncResult(null)
+    try {
+      const res = await api.dataSyncPull()
+      if (res.already_up_to_date) {
+        setSyncResult({ ok: true, text: 'Already up to date — no changes pulled.' })
+        return
+      }
+      const tables = Object.entries(res.results)
+      const total  = tables.reduce((s, [, r]) => r ? s + r.created + r.updated : s, 0)
+      const errs   = tables.reduce((s, [, r]) => r ? s + r.errors : s, 0)
+      const detail = tables
+        .filter(([, r]) => r && (r.created + r.updated + r.errors) > 0)
+        .map(([k, r]) => `${k}: ${r!.created}c ${r!.updated}u${r!.errors ? ` ${r!.errors}err` : ''}`)
+        .join(' · ')
+      setSyncResult({ ok: true, text: `Pulled — ${total} rows synced${errs ? `, ${errs} errors` : ''}. ${detail}` })
+    } catch (err) {
+      setSyncResult({ ok: false, text: String(err) })
+    } finally {
+      setSyncLoading(null)
+    }
+  }
+
   function handleImportCancel(key: string) {
     setImportPending(p => { const n = { ...p }; delete n[key]; return n })
   }
@@ -180,6 +220,53 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
         <p className="text-sm text-gray-400 mt-0.5">Data export and import</p>
+      </div>
+
+      {/* GitHub Data Sync */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-sm font-bold text-gray-700 mb-1">GitHub Data Sync</h3>
+        <p className="text-xs text-gray-400 mb-4">
+          Push exports all tables to <code className="bg-gray-100 px-1 rounded">Data/</code> and commits to your repo.
+          Pull fetches the latest commit and imports all tables in the correct order.
+        </p>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleSyncPush}
+            disabled={syncLoading !== null}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gray-800 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            {syncLoading === 'push' ? 'Pushing…' : 'Push to GitHub'}
+          </button>
+
+          <button
+            onClick={handleSyncPull}
+            disabled={syncLoading !== null}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gray-800 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4 4l-4-4m0 0l-4 4m4-4V4" />
+            </svg>
+            {syncLoading === 'pull' ? 'Pulling…' : 'Pull from GitHub'}
+          </button>
+        </div>
+
+        {syncResult && (
+          <div className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium flex items-start gap-2
+            ${syncResult.ok
+              ? 'bg-green-50 border border-green-200 text-green-700'
+              : 'bg-red-50 border border-red-200 text-red-600'}`}
+          >
+            {syncResult.ok
+              ? <svg className="w-3.5 h-3.5 shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              : <svg className="w-3.5 h-3.5 shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            }
+            <span>{syncResult.text}</span>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
