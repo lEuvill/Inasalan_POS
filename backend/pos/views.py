@@ -1,3 +1,5 @@
+import json as _json
+
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.db.models import F
@@ -442,3 +444,108 @@ class ExpenseViewSet(viewsets.ModelViewSet):
                 balance=F('balance') + self._expense_total(instance.items)
             )
         instance.delete()
+
+
+class BulkImportView(APIView):
+    # Fields to skip per table (auto-timestamps, computed serializer fields)
+    _SKIP = {
+        'products':      {'updated_at'},
+        'orders':        {'created_at', 'updated_at'},
+        'transactions':  {'order_detail'},
+        'tables':        set(),
+        'raw_materials': {'updated_at'},
+        'recipes':       {'raw_material_name', 'serving_unit', 'purchase_unit',
+                          'stock_qty', 'yield_min', 'yield_max'},
+        'expenses':      {'created_at', 'account_name'},
+        'cash_accounts': {'created_at'},
+    }
+    _JSON   = {
+        'products': {'variations'},
+        'orders':   {'items_json'},
+        'expenses': {'items'},
+    }
+    _BOOL = {
+        'products': {'is_available'},
+        'orders':   {'is_unpaid'},
+        'tables':   {'is_active'},
+    }
+    # Nullable integer fields (empty string → None)
+    _INT = {
+        'products':     {'android_id', 'stock', 'pieces_per_serving'},
+        'orders':       {'android_id'},
+        'transactions': {'android_id'},
+    }
+    # FK fields — stored as <field>_id in DB, value is an int
+    _FK = {
+        'transactions': {'order'},
+        'recipes':      {'product', 'raw_material'},
+        'expenses':     {'account'},
+    }
+    _MODEL = {
+        'products':      Product,
+        'orders':        Order,
+        'transactions':  Transaction,
+        'tables':        Table,
+        'raw_materials': RawMaterial,
+        'recipes':       ProductIngredient,
+        'expenses':      Expense,
+        'cash_accounts': CashAccount,
+    }
+
+    def post(self, request, table):
+        if table not in self._MODEL:
+            return Response({'error': f'Unknown table: {table}'}, status=400)
+
+        rows = request.data.get('rows', [])
+        if not isinstance(rows, list):
+            return Response({'error': 'rows must be a list'}, status=400)
+
+        Model      = self._MODEL[table]
+        skip_set   = self._SKIP.get(table, set())
+        json_set   = self._JSON.get(table, set())
+        bool_set   = self._BOOL.get(table, set())
+        int_set    = self._INT.get(table, set())
+        fk_set     = self._FK.get(table, set())
+
+        created = updated = errors = 0
+        for raw in rows:
+            try:
+                row = {}
+                for k, v in raw.items():
+                    if k in skip_set:
+                        continue
+                    empty = v == '' or v is None
+                    if k in json_set:
+                        row[k] = _json.loads(v) if (not empty and isinstance(v, str)) else ([] if empty else v)
+                    elif k in bool_set:
+                        row[k] = str(v).lower() in ('true', '1', 'yes')
+                    elif k in int_set:
+                        row[k] = int(float(str(v))) if not empty else None
+                    elif k in fk_set:
+                        row[k + '_id'] = int(float(str(v))) if not empty else None
+                    else:
+                        row[k] = v if v is not None else ''
+
+                raw_id = row.pop('id', None)
+                if raw_id is not None:
+                    try:
+                        row_id = int(float(str(raw_id)))
+                    except (ValueError, TypeError):
+                        row_id = None
+                else:
+                    row_id = None
+
+                if row_id is not None:
+                    _, was_created = Model.objects.update_or_create(pk=row_id, defaults=row)
+                else:
+                    Model.objects.create(**row)
+                    was_created = True
+
+                if was_created:
+                    created += 1
+                else:
+                    updated += 1
+            except Exception:
+                errors += 1
+
+        return Response({'created': created, 'updated': updated, 'errors': errors})

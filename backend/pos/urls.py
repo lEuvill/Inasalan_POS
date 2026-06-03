@@ -4,7 +4,7 @@ from .views import (
     ProductViewSet, OrderViewSet, TransactionViewSet, TableViewSet,
     RawMaterialViewSet, ProductIngredientViewSet, RawMaterialSnapshotViewSet,
     ExpenseViewSet, CashAccountViewSet,
-    SyncPushView, SyncPullView,
+    SyncPushView, SyncPullView, BulkImportView,
 )
 
 router = DefaultRouter()
@@ -22,4 +22,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('sync/push/', SyncPushView.as_view()),
     path('sync/pull/', SyncPullView.as_view()),
+    path('import/<str:table>/', BulkImportView.as_view()),
 ]

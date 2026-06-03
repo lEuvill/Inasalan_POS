@@ -250,6 +250,13 @@ export const api = {
   deleteExpense: (id: number) =>
     request<void>(`/api/expenses/${id}/`, { method: 'DELETE' }),
 
+  // Bulk import
+  importTable: (table: string, rows: Record<string, string>[]) =>
+    request<{ created: number; updated: number; errors: number }>(
+      `/api/import/${table}/`,
+      { method: 'POST', body: JSON.stringify({ rows }) },
+    ),
+
   // Cash Accounts
   getAccounts: () => request<CashAccount[]>('/api/cash-accounts/'),
   createAccount: (data: { name: string; balance: string }) =>
