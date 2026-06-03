@@ -155,9 +155,11 @@ function ImageDropZone({ value, onChange }: { value: string; onChange: (d: strin
 // ── Variation editor ──────────────────────────────────────────────────────────
 
 function VariationEditor({ variations, onChange }: { variations: ProductVariation[]; onChange: (v: ProductVariation[]) => void }) {
-  const add = () => onChange([...variations, { name: '', price: '0', output_name: '' }])
+  const add = () => onChange([...variations, { name: '', price: '0', output_name: '', pieces_per_serving: 1 }])
   const remove = (i: number) => onChange(variations.filter((_, idx) => idx !== i))
   const update = (i: number, field: keyof ProductVariation, val: string) =>
+    onChange(variations.map((v, idx) => idx === i ? { ...v, [field]: val } : v))
+  const updateNum = (i: number, field: keyof ProductVariation, val: number) =>
     onChange(variations.map((v, idx) => idx === i ? { ...v, [field]: val } : v))
 
   return (
@@ -196,6 +198,17 @@ function VariationEditor({ variations, onChange }: { variations: ProductVariatio
                     className="w-24 py-2 pr-3 text-sm focus:outline-none"
                     value={v.price}
                     onChange={(e) => update(i, 'price', e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden" title="Pieces per serving">
+                  <span className="px-2 text-xs text-gray-400">pcs</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="w-10 py-2 pr-2 text-sm focus:outline-none"
+                    value={v.pieces_per_serving ?? 1}
+                    onChange={(e) => updateNum(i, 'pieces_per_serving', Math.max(1, parseInt(e.target.value) || 1))}
                   />
                 </div>
                 <button

@@ -13,13 +13,15 @@ if not exist frontend\node_modules (
     exit /b 1
 )
 
+for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp | Select-Object -First 1).IPAddress"') do set LOCAL_IP=%%i
+if "%LOCAL_IP%"=="" set LOCAL_IP=localhost
+
 echo ============================================================
 echo  INASALAN POS
 echo ============================================================
 echo.
-echo  Backend  ->  http://localhost:8000
-echo  Frontend ->  http://localhost:3000
-echo  Admin    ->  http://localhost:8000/admin/
+echo  This PC  -^>  http://localhost:3000/admin
+echo  Network  -^>  http://%LOCAL_IP%:3000/admin
 echo.
 echo  Close this window to stop all servers.
 echo ============================================================

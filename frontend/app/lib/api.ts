@@ -5,6 +5,7 @@ export type ProductVariation = {
   price: string
   output_name?: string
   stock?: number | null
+  pieces_per_serving?: number
 }
 
 export type Product = {
@@ -43,6 +44,7 @@ export type Order = {
   order_type: OrderType | ''
   payment_method: PaymentMethod | ''
   table_number: string
+  customer_name: string
   items_json: OrderItem[]
   total: string
   status: OrderStatus
@@ -134,6 +136,30 @@ export type ProductIngredient = {
   yield_max: string
 }
 
+export type ExpenseItem = {
+  description: string
+  amount: string
+  date: string
+}
+
+export type CashAccount = {
+  id: number
+  name: string
+  balance: string
+  created_at: string
+}
+
+export type Expense = {
+  id: number
+  date: string
+  category: string
+  notes: string
+  items: ExpenseItem[]
+  account: number | null
+  account_name: string | null
+  created_at: string
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -160,7 +186,7 @@ export const api = {
     request<Order[]>(`/api/orders/${activeOnly ? '?status=active' : ''}`),
   getOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`),
-  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; status?: OrderStatus; completed_at?: string; is_unpaid?: boolean; order_mode?: OrderMode }) =>
+  createOrder: (data: { items_json: OrderItem[]; total: number; source?: string; slip_number?: string; order_type?: OrderType; payment_method?: PaymentMethod; table_number?: string; customer_name?: string; status?: OrderStatus; completed_at?: string; is_unpaid?: boolean; order_mode?: OrderMode }) =>
     request<Order>('/api/orders/', { method: 'POST', body: JSON.stringify(data) }),
   deleteOrder: (id: number) =>
     request<void>(`/api/orders/${id}/`, { method: 'DELETE' }),
@@ -175,6 +201,15 @@ export const api = {
 
   // Transactions
   getTransactions: () => request<Transaction[]>('/api/transactions/'),
+  getTodaySalesTotal: () => {
+    const now = new Date()
+    const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return request<Transaction[]>(`/api/transactions/?date=${localDate}`).then(
+      txns => txns
+        .filter(t => t.order_detail.payment_method === 'CASH')
+        .reduce((s, t) => s + parseFloat(t.total), 0)
+    )
+  },
   patchTransaction: (id: number, data: { total?: number; completed_at?: string }) =>
     request<Transaction>(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
 
@@ -205,6 +240,24 @@ export const api = {
     request<void>(`/api/raw-material-snapshots/${id}/`, { method: 'DELETE' }),
   getSnapshotProjection: (id: number) =>
     request<SnapshotProjection>(`/api/raw-material-snapshots/${id}/projection/`),
+
+  // Expenses
+  getExpenses: () => request<Expense[]>('/api/expenses/'),
+  createExpense: (data: Omit<Expense, 'id' | 'created_at' | 'account_name'>) =>
+    request<Expense>('/api/expenses/', { method: 'POST', body: JSON.stringify(data) }),
+  updateExpense: (id: number, data: Partial<Omit<Expense, 'id' | 'created_at' | 'account_name'>>) =>
+    request<Expense>(`/api/expenses/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteExpense: (id: number) =>
+    request<void>(`/api/expenses/${id}/`, { method: 'DELETE' }),
+
+  // Cash Accounts
+  getAccounts: () => request<CashAccount[]>('/api/cash-accounts/'),
+  createAccount: (data: { name: string; balance: string }) =>
+    request<CashAccount>('/api/cash-accounts/', { method: 'POST', body: JSON.stringify(data) }),
+  updateAccount: (id: number, data: Partial<{ name: string; balance: string }>) =>
+    request<CashAccount>(`/api/cash-accounts/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAccount: (id: number) =>
+    request<void>(`/api/cash-accounts/${id}/`, { method: 'DELETE' }),
 
   // Product Ingredients (Recipes)
   getProductIngredients: () => request<ProductIngredient[]>('/api/product-ingredients/'),

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient, RawMaterialSnapshot
+from .models import Product, Order, Transaction, Table, RawMaterial, ProductIngredient, RawMaterialSnapshot, Expense, CashAccount
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -12,7 +12,7 @@ class OrderSummarySerializer(serializers.ModelSerializer):
     """Minimal order data embedded in Transaction for export."""
     class Meta:
         model = Order
-        fields = ['id', 'slip_number', 'order_type', 'payment_method', 'table_number', 'items_json']
+        fields = ['id', 'slip_number', 'order_type', 'payment_method', 'table_number', 'items_json', 'order_mode']
 
 
 class TransactionSerializer(serializers.ModelSerializer):
@@ -60,4 +60,18 @@ class ProductIngredientSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProductIngredient
+        fields = '__all__'
+
+
+class CashAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CashAccount
+        fields = '__all__'
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    account_name = serializers.CharField(source='account.name', read_only=True)
+
+    class Meta:
+        model = Expense
         fields = '__all__'

@@ -500,10 +500,11 @@ export default function HistoryPage() {
   const [showExport, setShowExport] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [modeFilter, setModeFilter] = useState<ModeFilter>(() => {
-    if (typeof window === 'undefined') return 'ALL'
-    return (localStorage.getItem(LS_HISTORY_MODE) as ModeFilter) ?? 'ALL'
-  })
+  const [modeFilter, setModeFilter] = useState<ModeFilter>('ALL')
+  useEffect(() => {
+    const saved = localStorage.getItem(LS_HISTORY_MODE) as ModeFilter
+    if (saved) setModeFilter(saved)
+  }, [])
 
   const load = useCallback(async () => {
     const [txns, prods] = await Promise.all([api.getTransactions(), api.getProducts()])

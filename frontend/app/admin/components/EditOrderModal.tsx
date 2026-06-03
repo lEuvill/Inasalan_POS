@@ -17,6 +17,7 @@ export function EditOrderModal({
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<OrderItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [slipNumber, setSlipNumber] = useState('')
   const [completedAt, setCompletedAt] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [saving, setSaving] = useState(false)
@@ -33,6 +34,7 @@ export function EditOrderModal({
         const pad = (n: number) => String(n).padStart(2, '0')
         setCompletedAt(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
       }
+      setSlipNumber(ord.slip_number ?? '')
       setProducts(prods)
       setLoading(false)
     })
@@ -91,6 +93,7 @@ export function EditOrderModal({
     try {
       const patchData: Parameters<typeof api.patchOrder>[1] = { items_json: cart, total }
       if (paymentMethod) patchData.payment_method = paymentMethod as PaymentMethod
+      if (slipNumber !== (order.slip_number ?? '')) patchData.slip_number = slipNumber
       const updated = await api.patchOrder(order.id, patchData)
       // If completed, also update the linked transaction total and date
       if (updated.transaction) {
@@ -228,6 +231,17 @@ export function EditOrderModal({
                 <div className="flex justify-between font-bold text-gray-800">
                   <span>Total</span>
                   <span className="text-brand text-lg">₱{total.toFixed(2)}</span>
+                </div>
+                {/* Slip number */}
+                <div>
+                  <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide block mb-1">Slip #</label>
+                  <input
+                    type="text"
+                    value={slipNumber}
+                    onChange={e => setSlipNumber(e.target.value)}
+                    placeholder="e.g. 109850"
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:border-brand"
+                  />
                 </div>
                 {/* Date/time (only for completed orders with a transaction) */}
                 {order?.status === 'COMPLETED' && completedAt && (

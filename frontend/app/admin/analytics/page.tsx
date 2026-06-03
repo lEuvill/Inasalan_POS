@@ -134,27 +134,79 @@ function buildTimeSeries(txns: Transaction[], start: Date, end: Date) {
   return [...map.entries()].map(([label, revenue]) => ({ label, revenue }))
 }
 
-function buildTopProducts(txns: Transaction[], by: TopBy, piecesMap: Map<number, number>, limit?: number) {
-  const map = new Map<string, { qty: number; revenue: number }>()
+function resolvePieces(item: { productId: number; name: string }, products: Map<number, Product>): number {
+  const product = products.get(item.productId)
+  if (!product) return 1
+  if (product.variations?.length) {
+    const prefix = product.name + ' - '
+    const varName = item.name.startsWith(prefix) ? item.name.slice(prefix.length) : null
+    const variation = varName ? product.variations.find(v => v.name === varName) : null
+    if (variation?.pieces_per_serving) return variation.pieces_per_serving
+  }
+  return product.pieces_per_serving ?? 1
+}
+
+type VariationRow = { name: string; qty: number; revenue: number }
+type ProductRow   = VariationRow & { children: VariationRow[] }
+
+function buildTopProducts(txns: Transaction[], by: TopBy, productsById: Map<number, Product>, nameMap: Map<number, string>, limit?: number): ProductRow[] {
+  const map = new Map<string, { qty: number; revenue: number; children: Map<string, { qty: number; revenue: number }> }>()
   for (const t of txns) {
     for (const item of t.order_detail?.items_json ?? []) {
-      const cur = map.get(item.name) ?? { qty: 0, revenue: 0 }
+      const groupName = nameMap.get(item.productId) ?? item.name
+      if (!map.has(groupName)) map.set(groupName, { qty: 0, revenue: 0, children: new Map() })
+      const cur = map.get(groupName)!
       const disc = item.discount ?? 0
-      const pieces = piecesMap.get(item.productId) ?? 1
-      cur.qty += item.quantity * pieces
-      cur.revenue += item.price * (1 - disc / 100) * item.quantity
-      map.set(item.name, cur)
+      const pieces = item.quantity * resolvePieces(item, productsById)
+      const rev = item.price * (1 - disc / 100) * item.quantity
+      cur.qty += pieces
+      cur.revenue += rev
+      const childCur = cur.children.get(item.name) ?? { qty: 0, revenue: 0 }
+      childCur.qty += pieces
+      childCur.revenue += rev
+      cur.children.set(item.name, childCur)
     }
   }
   const sorted = [...map.entries()]
-    .map(([name, v]) => ({ name, ...v }))
+    .map(([name, v]) => ({
+      name,
+      qty: v.qty,
+      revenue: v.revenue,
+      children: [...v.children.entries()]
+        .map(([n, c]) => ({ name: n, ...c }))
+        .sort((a, b) => b[by] - a[by]),
+    }))
     .sort((a, b) => b[by] - a[by])
   return limit !== undefined ? sorted.slice(0, limit) : sorted
 }
 
-function buildCategoryData(txns: Transaction[], products: Product[]) {
+type PiecesRow = { name: string; pieces: number; children: { name: string; pieces: number }[] }
+
+function buildPiecesSummary(txns: Transaction[], productsById: Map<number, Product>, nameMap: Map<number, string>): PiecesRow[] {
+  const map = new Map<string, { pieces: number; children: Map<string, number> }>()
+  for (const t of txns) {
+    for (const item of t.order_detail?.items_json ?? []) {
+      const groupName = nameMap.get(item.productId) ?? item.name
+      if (!map.has(groupName)) map.set(groupName, { pieces: 0, children: new Map() })
+      const cur = map.get(groupName)!
+      const pieces = item.quantity * resolvePieces(item, productsById)
+      cur.pieces += pieces
+      cur.children.set(item.name, (cur.children.get(item.name) ?? 0) + pieces)
+    }
+  }
+  return [...map.entries()]
+    .map(([name, v]) => ({
+      name,
+      pieces: v.pieces,
+      children: [...v.children.entries()]
+        .map(([n, pieces]) => ({ name: n, pieces }))
+        .sort((a, b) => b.pieces - a.pieces),
+    }))
+    .sort((a, b) => b.pieces - a.pieces)
+}
+
+function buildCategoryData(txns: Transaction[], products: Product[], productsById: Map<number, Product>) {
   const catMap = new Map(products.map(p => [p.id, p.category || 'Uncategorized']))
-  const piecesMap = new Map(products.map(p => [p.id, p.pieces_per_serving ?? 1]))
   const map = new Map<string, { revenue: number; qty: number; orders: number }>()
   for (const t of txns) {
     const catsInTxn = new Set<string>()
@@ -162,9 +214,8 @@ function buildCategoryData(txns: Transaction[], products: Product[]) {
       const cat = catMap.get(item.productId) ?? 'Other'
       if (!map.has(cat)) map.set(cat, { revenue: 0, qty: 0, orders: 0 })
       const cur = map.get(cat)!
-      const pieces = piecesMap.get(item.productId) ?? 1
       cur.revenue += item.price * item.quantity
-      cur.qty += item.quantity * pieces
+      cur.qty += item.quantity * resolvePieces(item, productsById)
       catsInTxn.add(cat)
     }
     for (const cat of catsInTxn) map.get(cat)!.orders++
@@ -344,12 +395,22 @@ export default function AnalyticsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [products, setProducts]         = useState<Product[]>([])
   const [loading, setLoading]           = useState(true)
+
   const [preset, setPreset]             = useState<Preset>('30d')
   const [customStart, setCustomStart]   = useState('')
   const [customEnd, setCustomEnd]       = useState('')
   const [topBy, setTopBy]               = useState<TopBy>('revenue')
   const [catBy, setCatBy]               = useState<CatBy>('revenue')
   const [topShowAll, setTopShowAll]     = useState(false)
+  const [expandedTop, setExpandedTop]   = useState<Set<string>>(new Set())
+  const [expandedPieces, setExpandedPieces] = useState<Set<string>>(new Set())
+
+  function toggleTop(name: string) {
+    setExpandedTop(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
+  }
+  function togglePieces(name: string) {
+    setExpandedPieces(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
+  }
   const [includedModes, setIncludedModes] = useState<Set<OrderMode>>(new Set(['REGULAR']))
   useEffect(() => {
     try {
@@ -397,13 +458,15 @@ export default function AnalyticsPage() {
   const aov         = filtered.length     ? revenue     / filtered.length     : 0
   const prevAov     = prevFiltered.length ? prevRevenue / prevFiltered.length : 0
 
-  const piecesMap    = useMemo(() => new Map(products.map(p => [p.id, p.pieces_per_serving ?? 1])), [products])
+  const productsById = useMemo(() => new Map(products.map(p => [p.id, p])), [products])
+  const nameMap      = useMemo(() => new Map(products.map(p => [p.id, p.name])),                   [products])
 
-  const timeSeries   = useMemo(() => buildTimeSeries(filtered, start, end),                   [filtered, start, end])
-  const topProducts  = useMemo(() => buildTopProducts(filtered, topBy, piecesMap, 10),        [filtered, topBy, piecesMap])
-  const allProducts  = useMemo(() => buildTopProducts(filtered, topBy, piecesMap),            [filtered, topBy, piecesMap])
-  const topItem      = useMemo(() => buildTopProducts(filtered, 'qty', piecesMap, 1)[0],      [filtered, piecesMap])
-  const categoryData = useMemo(() => buildCategoryData(filtered, products),      [filtered, products])
+  const timeSeries    = useMemo(() => buildTimeSeries(filtered, start, end),                                    [filtered, start, end])
+  const topProducts   = useMemo(() => buildTopProducts(filtered, topBy, productsById, nameMap, 10),             [filtered, topBy, productsById, nameMap])
+  const allProducts   = useMemo(() => buildTopProducts(filtered, topBy, productsById, nameMap),                 [filtered, topBy, productsById, nameMap])
+  const topItem       = useMemo(() => buildTopProducts(filtered, 'qty', productsById, nameMap, 1)[0],           [filtered, productsById, nameMap])
+  const piecesSummary = useMemo(() => buildPiecesSummary(filtered, productsById, nameMap),                      [filtered, productsById, nameMap])
+  const categoryData = useMemo(() => buildCategoryData(filtered, products, productsById), [filtered, products, productsById])
   const orderTypeData = useMemo(() => buildOrderTypeData(filtered),              [filtered])
   const paymentData  = useMemo(() => buildPaymentData(filtered),                 [filtered])
   const hourlyData   = useMemo(() => buildHourly(filtered),                      [filtered])
@@ -610,34 +673,64 @@ export default function AnalyticsPage() {
                           const qtyPct = totalQty     > 0 ? (p.qty     / totalQty)     * 100 : 0
                           const pct    = topBy === 'revenue' ? revPct : qtyPct
                           const barW   = Math.max(pct, 1)
+                          const hasVars = p.children.some(c => c.name !== p.name)
+                          const isOpen  = expandedTop.has(p.name)
                           return (
-                            <tr key={p.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                              <td className="px-4 py-2.5 text-xs text-gray-300 font-semibold tabular-nums">{i + 1}</td>
-                              <td className="px-4 py-2.5">
-                                <span className="text-xs font-medium text-gray-700">{p.name}</span>
-                              </td>
-                              <td className="px-4 py-2.5 text-right">
-                                <span className={`text-xs font-semibold tabular-nums ${topBy === 'qty' ? 'text-brand' : 'text-gray-600'}`}>
-                                  {p.qty.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 text-right">
-                                <span className={`text-xs font-semibold tabular-nums ${topBy === 'revenue' ? 'text-brand' : 'text-gray-600'}`}>
-                                  {fmtPeso(p.revenue)}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <div className="flex items-center gap-2 justify-end">
-                                  <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                                    <div
-                                      className="h-full rounded-full bg-brand"
-                                      style={{ width: `${barW}%` }}
-                                    />
+                            <>
+                              <tr key={p.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                <td className="px-4 py-2.5 text-xs text-gray-300 font-semibold tabular-nums">{i + 1}</td>
+                                <td className="px-4 py-2.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {hasVars ? (
+                                      <button onClick={() => toggleTop(p.name)} className="text-gray-400 hover:text-gray-600 transition-colors shrink-0">
+                                        <svg className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                      </button>
+                                    ) : <span className="w-3.5 shrink-0" />}
+                                    <span className="text-xs font-medium text-gray-700">{p.name}</span>
                                   </div>
-                                  <span className="text-[10px] text-gray-400 tabular-nums w-8 text-right">{pct.toFixed(1)}%</span>
-                                </div>
-                              </td>
-                            </tr>
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={`text-xs font-semibold tabular-nums ${topBy === 'qty' ? 'text-brand' : 'text-gray-600'}`}>
+                                    {p.qty.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={`text-xs font-semibold tabular-nums ${topBy === 'revenue' ? 'text-brand' : 'text-gray-600'}`}>
+                                    {fmtPeso(p.revenue)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <div className="flex items-center gap-2 justify-end">
+                                    <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                      <div className="h-full rounded-full bg-brand" style={{ width: `${barW}%` }} />
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 tabular-nums w-8 text-right">{pct.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                              {isOpen && hasVars && p.children.map(child => {
+                                const childLabel = child.name.startsWith(p.name + ' - ') ? child.name.slice(p.name.length + 3) : child.name
+                                return (
+                                  <tr key={child.name} className="bg-orange-50/40">
+                                    <td className="px-4 py-1.5" />
+                                    <td className="pl-9 pr-4 py-1.5">
+                                      <span className="text-xs text-gray-500">{childLabel}</span>
+                                    </td>
+                                    <td className="px-4 py-1.5 text-right">
+                                      <span className={`text-xs tabular-nums ${topBy === 'qty' ? 'text-brand/80' : 'text-gray-400'}`}>
+                                        {child.qty.toLocaleString()}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-1.5 text-right">
+                                      <span className={`text-xs tabular-nums ${topBy === 'revenue' ? 'text-brand/80' : 'text-gray-400'}`}>
+                                        {fmtPeso(child.revenue)}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-1.5" />
+                                  </tr>
+                                )
+                              })}
+                            </>
                           )
                         })}
                       </tbody>
@@ -775,6 +868,92 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
+      {/* ── Pieces by Menu Item ── */}
+      <Card>
+        <CardHeader title="Pieces Sold by Menu Item" />
+        <div className="px-4 pb-5">
+          {piecesSummary.length === 0 ? <Empty /> : (() => {
+            const totalPieces = piecesSummary.reduce((s, r) => s + r.pieces, 0)
+            return (
+              <div className="overflow-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 w-10">#</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400">Menu Item</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400">Total Pieces</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 w-28">% of Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {piecesSummary.map((row, i) => {
+                      const pct = totalPieces > 0 ? (row.pieces / totalPieces) * 100 : 0
+                      const hasVars = row.children.some(c => c.name !== row.name)
+                      const isOpen  = expandedPieces.has(row.name)
+                      return (
+                        <>
+                          <tr key={row.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                            <td className="px-4 py-2.5 text-xs text-gray-300 font-semibold tabular-nums">{i + 1}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                {hasVars ? (
+                                  <button onClick={() => togglePieces(row.name)} className="text-gray-400 hover:text-gray-600 transition-colors shrink-0">
+                                    <svg className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                  </button>
+                                ) : <span className="w-3.5 shrink-0" />}
+                                <span className="text-xs font-medium text-gray-700">{row.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-xs font-semibold text-brand tabular-nums">{row.pieces.toLocaleString()}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-2 justify-end">
+                                <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                  <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(pct, 1)}%` }} />
+                                </div>
+                                <span className="text-[10px] text-gray-400 tabular-nums w-8 text-right">{pct.toFixed(1)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                          {isOpen && hasVars && row.children.map(child => {
+                            const childLabel = child.name.startsWith(row.name + ' - ') ? child.name.slice(row.name.length + 3) : child.name
+                            const childPct = totalPieces > 0 ? (child.pieces / totalPieces) * 100 : 0
+                            return (
+                              <tr key={child.name} className="bg-orange-50/40">
+                                <td className="px-4 py-1.5" />
+                                <td className="pl-9 pr-4 py-1.5">
+                                  <span className="text-xs text-gray-500">{childLabel}</span>
+                                </td>
+                                <td className="px-4 py-1.5 text-right text-xs text-brand/80 tabular-nums">{child.pieces.toLocaleString()}</td>
+                                <td className="px-4 py-1.5">
+                                  <div className="flex items-center gap-2 justify-end">
+                                    <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                                      <div className="h-full rounded-full bg-brand/50" style={{ width: `${Math.max(childPct, 1)}%` }} />
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 tabular-nums w-8 text-right">{childPct.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-100 bg-gray-50">
+                      <td className="px-4 py-2.5" />
+                      <td className="px-4 py-2.5 text-xs font-bold text-gray-600">Total</td>
+                      <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-700 tabular-nums">{totalPieces.toLocaleString()}</td>
+                      <td className="px-4 py-2.5" />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )
+          })()}
+        </div>
+      </Card>
+
       {/* ── Order Type + Payment Method ── */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
@@ -862,6 +1041,7 @@ export default function AnalyticsPage() {
           </div>
         </Card>
       </div>
+
 
     </div>
   )

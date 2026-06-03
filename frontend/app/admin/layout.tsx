@@ -11,6 +11,8 @@ const NAV = [
   { href: '/admin/tables', label: 'Tables', icon: '⊞' },
   { href: '/admin/history', label: 'History', icon: '⏱' },
   { href: '/admin/analytics', label: 'Analytics', icon: '◈' },
+  { href: '/admin/expenses', label: 'Expenses', icon: '◷' },
+  { href: '/admin/settings', label: 'Settings', icon: '⚙' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

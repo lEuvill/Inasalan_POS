@@ -134,14 +134,17 @@ echo.
 echo [4/5] Installing frontend dependencies...
 cd frontend
 
-if not exist .env.local (
-    echo  Creating .env.local with defaults...
-    (
-        echo NEXT_PUBLIC_API_URL=http://localhost:8000
-        echo NEXT_PUBLIC_WS_URL=ws://localhost:8000
-        echo NEXT_PUBLIC_VOID_PIN=0000
-    ) > .env.local
-)
+echo  Detecting local network IP...
+for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp | Select-Object -First 1).IPAddress"') do set LOCAL_IP=%%i
+if "%LOCAL_IP%"=="" set LOCAL_IP=localhost
+echo  Using IP: %LOCAL_IP%
+
+echo  Writing .env.local for network access...
+(
+    echo NEXT_PUBLIC_API_URL=http://%LOCAL_IP%:8000
+    echo NEXT_PUBLIC_WS_URL=ws://%LOCAL_IP%:8000
+    echo NEXT_PUBLIC_VOID_PIN=0000
+) > .env.local
 
 call npm install --silent
 if errorlevel 1 (

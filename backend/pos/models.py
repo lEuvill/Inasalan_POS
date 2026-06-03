@@ -58,6 +58,7 @@ class Order(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     source = models.CharField(max_length=10, default='web')  # 'web' or 'android'
     table_number = models.CharField(max_length=20, blank=True, default='')
+    customer_name = models.CharField(max_length=100, blank=True, default='')
     is_unpaid = models.BooleanField(default=False)
     order_mode = models.CharField(max_length=20, choices=OrderMode.choices, default=OrderMode.REGULAR)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -125,6 +126,34 @@ class RawMaterialSnapshot(models.Model):
 
     def __str__(self):
         return f'Snapshot {self.pk} @ {self.saved_at}'
+
+
+class CashAccount(models.Model):
+    name = models.CharField(max_length=100)
+    balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f'{self.name} ₱{self.balance}'
+
+
+class Expense(models.Model):
+    date = models.DateField()
+    category = models.CharField(max_length=100, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    items = models.JSONField(default=list)  # [{description, amount}]
+    account = models.ForeignKey(CashAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name='expenses')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-id']
+
+    def __str__(self):
+        total = sum(float(i.get('amount', 0)) for i in self.items)
+        return f'Expense {self.date} ₱{total:.2f}'
 
 
 class Transaction(models.Model):

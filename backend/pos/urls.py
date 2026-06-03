@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ProductViewSet, OrderViewSet, TransactionViewSet, TableViewSet,
     RawMaterialViewSet, ProductIngredientViewSet, RawMaterialSnapshotViewSet,
+    ExpenseViewSet, CashAccountViewSet,
     SyncPushView, SyncPullView,
 )
 
@@ -14,6 +15,8 @@ router.register('tables', TableViewSet)
 router.register('raw-materials', RawMaterialViewSet)
 router.register('product-ingredients', ProductIngredientViewSet)
 router.register('raw-material-snapshots', RawMaterialSnapshotViewSet)
+router.register('expenses', ExpenseViewSet)
+router.register('cash-accounts', CashAccountViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

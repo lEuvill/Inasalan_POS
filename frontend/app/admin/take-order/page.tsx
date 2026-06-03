@@ -31,10 +31,10 @@ export default function TakeOrderPage() {
   const [stockWarn, setStockWarn]           = useState<string | null>(null)
   const stockWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [dfCustom, setDfCustom]       = useState<{ value: string } | null>(null)
-  const [dfOutputNames, setDfOutputNames] = useState<Record<number, string>>(() => {
-    if (typeof window === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem('pos_df_output_names') ?? '{}') } catch { return {} }
-  })
+  const [dfOutputNames, setDfOutputNames] = useState<Record<number, string>>({})
+  useEffect(() => {
+    try { setDfOutputNames(JSON.parse(localStorage.getItem('pos_df_output_names') ?? '{}')) } catch { /* keep default */ }
+  }, [])
   const [showDfConfig, setShowDfConfig] = useState(false)
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -249,6 +249,7 @@ export default function TakeOrderPage() {
         ...(orderMode === 'REGULAR' ? { payment_method: paymentMethod } : { status: 'COMPLETED' as const }),
         ...(slip ? { slip_number: slip } : {}),
         ...(tbl.trim() ? { table_number: tbl.trim() } : {}),
+        ...(ownerName.trim() ? { customer_name: ownerName.trim() } : {}),
         ...(isUnpaid && orderMode === 'REGULAR' ? { is_unpaid: true } : {}),
       })
       if (slip) localStorage.setItem(slipKey(orderMode), slip)
