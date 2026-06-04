@@ -1,9 +1,9 @@
 id,raw_material_name,serving_unit,purchase_unit,stock_qty,yield_min,yield_max,qty_per_serving,variation_name,product,raw_material
-28,BBQ,pc,1,2.000,1.000,1.000,2.000,Meal,9,13
-29,BBQ,pc,1,2.000,1.000,1.000,2.000,Unli,9,13
-30,BBQ,pc,1,2.000,1.000,1.000,1.000,Only,9,13
-31,BBQ,pc,1,2.000,1.000,1.000,1.000,One Piece Only,9,13
-32,BBQ,pc,1,2.000,1.000,1.000,1.000,One Piece Meal,9,13
+28,BBQ,pc,1,1.000,1.000,1.000,2.000,Meal,9,13
+29,BBQ,pc,1,1.000,1.000,1.000,2.000,Unli,9,13
+30,BBQ,pc,1,1.000,1.000,1.000,1.000,Only,9,13
+31,BBQ,pc,1,1.000,1.000,1.000,1.000,One Piece Only,9,13
+32,BBQ,pc,1,1.000,1.000,1.000,1.000,One Piece Meal,9,13
 42,Bottled Water,pc,pc,1.000,1.000,1.000,1.000,Bottled,12,23
 33,Coke 1.5,pc,pc,7.750,1.000,1.000,0.250,1 Glass,1,14
 34,Coke 1.5,pc,pc,7.750,1.000,1.000,1.000,1.5,1,14
