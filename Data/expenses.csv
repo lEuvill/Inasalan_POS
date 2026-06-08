@@ -1,4 +1,14 @@
 id,account_name,date,category,notes,items,created_at,account
+160,Today Sales,2026-06-08,,,"[{""date"": ""2026-06-08"", ""description"": ""Temp Delete me when its not today anymore"", ""amount"": ""4096.40""}]",2026-06-08T22:39:15.418125+08:00,4
+159,Today Sales,2026-06-08,Salary,,"[{""date"": ""2026-06-08"", ""description"": ""Lhei"", ""amount"": ""2750.00""}]",2026-06-08T22:20:15.857042+08:00,4
+157,Today Sales,2026-06-08,Salary,,"[{""date"": ""2026-06-08"", ""description"": ""Ruth (salary)"", ""amount"": ""100.00""}]",2026-06-08T22:00:22.920052+08:00,4
+156,Savings,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""1x Netbag Garlic"", ""amount"": ""450.00""}, {""date"": ""2026-06-08"", ""description"": ""1x No Details (sili, kalamansi, luya)"", ""amount"": ""850.00""}]",2026-06-08T21:56:42.858871+08:00,2
+155,Savings,2026-06-08,,,"[{""date"": ""2026-06-08"", ""description"": ""1x box Liempo Seara 17.94kl"", ""amount"": ""4216.00""}, {""date"": ""2026-06-08"", ""description"": ""1x Liempo cut charge"", ""amount"": ""179.00""}]",2026-06-08T21:39:21.072274+08:00,2
+154,Savings,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""5x pack Mismo Soda"", ""amount"": ""990.00""}]",2026-06-08T21:34:42.098216+08:00,2
+153,Today Sales,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""2x Mismo Soda"", ""amount"": ""50.00""}, {""date"": ""2026-06-08"", ""description"": ""Ruth salary"", ""amount"": ""100.00""}]",2026-06-08T21:32:23.047622+08:00,4
+152,Petty cash,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""1x Maxglow Galon"", ""amount"": ""160.00""}]",2026-06-08T14:23:23.883794+08:00,1
+151,Petty cash,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""20x Tissue"", ""amount"": ""200.00""}, {""date"": ""2026-06-08"", ""description"": ""5x Toothpick"", ""amount"": ""90.00""}]",2026-06-08T14:22:47.109953+08:00,1
+148,Petty cash,2026-06-08,Supplies,,"[{""date"": ""2026-06-08"", ""description"": ""Charcoal"", ""amount"": ""400.00""}]",2026-06-08T13:56:55.501553+08:00,1
 147,Petty cash,2026-06-08,Salary,,"[{""date"": ""2026-06-08"", ""description"": ""Ruth (hulog nia daw sa lechon)"", ""amount"": ""1000.00""}]",2026-06-08T00:32:45.916926+08:00,1
 146,Petty cash,2026-06-07,Supplies,,"[{""date"": ""2026-06-07"", ""description"": ""Rice 25kl"", ""amount"": ""1250.00""}, {""date"": ""2026-06-07"", ""description"": ""Luya"", ""amount"": ""100.00""}, {""date"": ""2026-06-07"", ""description"": ""plastic"", ""amount"": ""90.00""}, {""date"": ""2026-06-07"", ""description"": ""Ice cube"", ""amount"": ""50.00""}]",2026-06-08T00:32:26.463657+08:00,1
 144,Savings,2026-06-07,Transport,,"[{""date"": ""2026-06-07"", ""description"": ""Honda click gasoline"", ""amount"": ""100.00""}]",2026-06-07T23:52:02.030904+08:00,2
