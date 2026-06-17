@@ -1,4 +1,6 @@
 id,account_name,date,category,notes,items,created_at,account
+190,Petty cash,2026-06-17,Supplies,,"[{""date"": ""2026-06-17"", ""description"": ""Thai Elephant Rice"", ""amount"": ""1160.00""}]",2026-06-17T18:09:53.060165+08:00,1
+189,Today Sales,2026-06-17,Supplies,,"[{""date"": ""2026-06-17"", ""description"": ""uling 1 sack"", ""amount"": ""400.00""}]",2026-06-17T17:45:13.459010+08:00,4
 188,Savings,2026-06-16,Supplies,,"[{""date"": ""2026-06-16"", ""description"": ""lemon"", ""amount"": ""200.00""}, {""date"": ""2026-06-16"", ""description"": ""Salt"", ""amount"": ""45.00""}, {""date"": ""2026-06-16"", ""description"": ""Dishwahing liquid"", ""amount"": ""150.00""}]",2026-06-16T15:31:14.494347+08:00,2
 187,Savings,2026-06-16,Transport,,"[{""date"": ""2026-06-16"", ""description"": ""Stargazer gas"", ""amount"": ""1000.00""}]",2026-06-16T13:59:53.376787+08:00,2
 186,Today Sales,2026-06-15,Supplies,,"[{""date"": ""2026-06-15"", ""description"": ""ICE"", ""amount"": ""50.00""}]",2026-06-15T20:33:41.354215+08:00,4
