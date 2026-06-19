@@ -1,4 +1,11 @@
 id,account_name,date,category,notes,items,created_at,account
+202,Petty Cash,2026-06-19,Equipment,,"[{""date"": ""2026-06-19"", ""description"": ""1x Tasyo Items"", ""amount"": ""500.00""}]",2026-06-19T23:52:19.611628+08:00,1
+201,Petty Cash,2026-06-19,Supplies,,"[{""date"": ""2026-06-19"", ""description"": ""Lipton Green Tea"", ""amount"": ""101.00""}, {""date"": ""2026-06-19"", ""description"": ""Nestea Lemon 20g"", ""amount"": ""96.25""}]",2026-06-19T18:35:33.214927+08:00,1
+200,Petty Cash,2026-06-19,Supplies,,"[{""date"": ""2026-06-19"", ""description"": ""Ice"", ""amount"": ""50.00""}]",2026-06-19T18:30:29.528289+08:00,1
+199,Petty Cash,2026-06-19,Equipment,,"[{""date"": ""2026-06-19"", ""description"": ""3 pcs Food Tong"", ""amount"": ""135.00""}, {""date"": ""2026-06-19"", ""description"": ""Charcoal"", ""amount"": ""400.00""}, {""date"": ""2026-06-19"", ""description"": ""Lemons"", ""amount"": ""300.00""}]",2026-06-19T18:27:38.914004+08:00,1
+198,Petty Cash,2026-06-19,Other,,"[{""date"": ""2026-06-19"", ""description"": ""Basura"", ""amount"": ""50.00""}]",2026-06-19T13:14:01.601038+08:00,1
+197,Petty Cash,2026-06-19,Supplies,,"[{""date"": ""2026-06-19"", ""description"": ""XXL Garbage Bag"", ""amount"": ""70.00""}, {""date"": ""2026-06-19"", ""description"": ""Tiny Wow Plastic"", ""amount"": ""30.00""}, {""date"": ""2026-06-19"", ""description"": ""Spam"", ""amount"": ""70.00""}, {""date"": ""2026-06-19"", ""description"": ""Spoon"", ""amount"": ""25.00""}, {""date"": ""2026-06-19"", ""description"": ""Medium Plastic"", ""amount"": ""60.00""}]",2026-06-19T13:09:36.378209+08:00,1
+196,Petty Cash,2026-06-19,Other,,"[{""date"": ""2026-06-19"", ""description"": ""Cash Advance Brando"", ""amount"": ""50.00""}]",2026-06-19T13:03:28.482597+08:00,1
 195,Petty Cash,2026-06-18,Other,Lhei Mark Lanuang,"[{""date"": ""2026-06-18"", ""description"": ""Cash Advance"", ""amount"": ""200.00""}]",2026-06-18T17:06:55.287187+08:00,1
 194,Petty Cash,2026-06-18,Supplies,,"[{""date"": ""2026-06-18"", ""description"": ""1 PC Vermicelli"", ""amount"": ""26.00""}, {""date"": ""2026-06-18"", ""description"": ""3 PC Knorr Beef Cubes 120g @ 69"", ""amount"": ""207.00""}]",2026-06-18T15:11:10.923824+08:00,1
 193,Petty Cash,2026-06-18,Food,,"[{""date"": ""2026-06-18"", ""description"": ""Isda"", ""amount"": ""400.00""}]",2026-06-18T15:08:37.397504+08:00,1
