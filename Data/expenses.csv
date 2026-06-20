@@ -1,4 +1,9 @@
 id,account_name,date,category,notes,items,created_at,account
+207,Today Sales,2026-06-20,Supplies,,"[{""date"": ""2026-06-20"", ""description"": ""1x 1.5 coke"", ""amount"": ""78.00""}]",2026-06-20T22:27:44.007408+08:00,4
+206,Today Sales,2026-06-20,Supplies,,"[{""date"": ""2026-06-20"", ""description"": ""1x ice"", ""amount"": ""50.00""}]",2026-06-20T19:12:01.073762+08:00,4
+205,Today Sales,2026-06-20,,,"[{""date"": ""2026-06-20"", ""description"": ""Lhei CA"", ""amount"": ""100.00""}]",2026-06-20T18:15:32.692875+08:00,4
+204,Petty Cash,2026-06-20,Salary,,"[{""date"": ""2026-06-20"", ""description"": ""Brando Cash Advance"", ""amount"": ""500.00""}]",2026-06-20T15:22:58.734577+08:00,1
+203,Savings,2026-06-20,Transport,,"[{""date"": ""2026-06-20"", ""description"": ""Gas"", ""amount"": ""500.00""}]",2026-06-20T14:08:54.168789+08:00,2
 202,Petty Cash,2026-06-19,Equipment,,"[{""date"": ""2026-06-19"", ""description"": ""1x Tasyo Items"", ""amount"": ""500.00""}]",2026-06-19T23:52:19.611628+08:00,1
 201,Petty Cash,2026-06-19,Supplies,,"[{""date"": ""2026-06-19"", ""description"": ""Lipton Green Tea"", ""amount"": ""101.00""}, {""date"": ""2026-06-19"", ""description"": ""Nestea Lemon 20g"", ""amount"": ""96.25""}]",2026-06-19T18:35:33.214927+08:00,1
 200,Petty Cash,2026-06-19,Supplies,,"[{""date"": ""2026-06-19"", ""description"": ""Ice"", ""amount"": ""50.00""}]",2026-06-19T18:30:29.528289+08:00,1
