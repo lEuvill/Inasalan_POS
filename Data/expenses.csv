@@ -1,4 +1,7 @@
 id,account_name,date,category,notes,items,created_at,account
+210,Today Sales,2026-06-21,Supplies,,"[{""date"": ""2026-06-21"", ""description"": ""ice cubes"", ""amount"": ""50.00""}]",2026-06-22T00:00:45.861264+08:00,4
+209,Today Sales,2026-06-21,Salary,,"[{""date"": ""2026-06-21"", ""description"": ""Tasyo wife salary"", ""amount"": ""400.00""}]",2026-06-21T23:55:36.044799+08:00,4
+208,Today Sales,2026-06-21,Supplies,,"[{""date"": ""2026-06-21"", ""description"": ""Calamansi"", ""amount"": ""80.00""}]",2026-06-21T20:24:13.772304+08:00,4
 207,Today Sales,2026-06-20,Supplies,,"[{""date"": ""2026-06-20"", ""description"": ""1x 1.5 coke"", ""amount"": ""78.00""}]",2026-06-20T22:27:44.007408+08:00,4
 206,Today Sales,2026-06-20,Supplies,,"[{""date"": ""2026-06-20"", ""description"": ""1x ice"", ""amount"": ""50.00""}]",2026-06-20T19:12:01.073762+08:00,4
 205,Today Sales,2026-06-20,,,"[{""date"": ""2026-06-20"", ""description"": ""Lhei CA"", ""amount"": ""100.00""}]",2026-06-20T18:15:32.692875+08:00,4
