@@ -1,4 +1,8 @@
 id,account_name,date,category,notes,items,created_at,account
+214,Petty Cash,2026-06-22,Supplies,,"[{""date"": ""2026-06-22"", ""description"": ""Prycegas"", ""amount"": ""175.00""}]",2026-06-22T17:12:47.746410+08:00,1
+213,Today Sales,2026-06-22,Supplies,,"[{""date"": ""2026-06-22"", ""description"": ""Prycegas"", ""amount"": ""1000.00""}]",2026-06-22T17:11:58.260455+08:00,4
+212,Today Sales,2026-06-22,,received by: Luis Cedeno,"[{""date"": ""2026-06-22"", ""description"": ""Cash Advance ( Luis )"", ""amount"": ""500.00""}]",2026-06-22T17:04:12.559568+08:00,4
+211,Petty Cash,2026-06-22,Supplies,,"[{""date"": ""2026-06-22"", ""description"": ""Bigas 1 sack 25Kg"", ""amount"": ""1195.00""}]",2026-06-22T14:26:54.643564+08:00,1
 210,Today Sales,2026-06-21,Supplies,,"[{""date"": ""2026-06-21"", ""description"": ""ice cubes"", ""amount"": ""50.00""}]",2026-06-22T00:00:45.861264+08:00,4
 209,Today Sales,2026-06-21,Salary,,"[{""date"": ""2026-06-21"", ""description"": ""Tasyo wife salary"", ""amount"": ""400.00""}]",2026-06-21T23:55:36.044799+08:00,4
 208,Today Sales,2026-06-21,Supplies,,"[{""date"": ""2026-06-21"", ""description"": ""Calamansi"", ""amount"": ""80.00""}]",2026-06-21T20:24:13.772304+08:00,4
