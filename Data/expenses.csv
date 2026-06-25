@@ -1,5 +1,9 @@
 id,account_name,date,category,notes,items,created_at,account
-219,Cash Loan,2026-06-25,,Delete Me pag nabayaran na,"[{""date"": ""2026-06-25"", ""description"": ""Utang ni Mami"", ""amount"": ""11.00""}]",2026-06-25T00:13:10.686877+08:00,5
+224,Petty Cash,2026-06-25,Food,,"[{""date"": ""2026-06-25"", ""description"": ""Calamansi"", ""amount"": ""50.00""}]",2026-06-25T20:21:22.934163+08:00,1
+223,Petty Cash,2026-06-25,,,"[{""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Lhei ) 6/24/2026"", ""amount"": ""20.00""}, {""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Brando ) 6/24/2026"", ""amount"": ""50.00""}]",2026-06-25T20:01:53.394486+08:00,1
+222,Today Sales,2026-06-25,,,"[{""date"": ""2026-06-25"", ""description"": ""ice"", ""amount"": ""50.00""}, {""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Brando )"", ""amount"": ""50.00""}]",2026-06-25T19:59:09.693633+08:00,4
+221,Savings,2026-06-25,Transport,,"[{""date"": ""2026-06-25"", ""description"": ""Gas"", ""amount"": ""500.00""}]",2026-06-25T13:11:45.402933+08:00,2
+220,Petty Cash,2026-06-25,Supplies,,"[{""date"": ""2026-06-25"", ""description"": ""sinigang mix"", ""amount"": ""285.00""}]",2026-06-25T13:11:03.335704+08:00,1
 218,Today Sales,2026-06-24,Supplies,,"[{""date"": ""2026-06-24"", ""description"": ""ICE"", ""amount"": ""50.00""}]",2026-06-24T17:36:47.806658+08:00,4
 217,Today Sales,2026-06-23,Salary,,"[{""date"": ""2026-06-23"", ""description"": ""Brando CA"", ""amount"": ""300.00""}]",2026-06-23T17:04:36.515385+08:00,4
 216,Today Sales,2026-06-23,Salary,,"[{""date"": ""2026-06-23"", ""description"": ""Brando CA"", ""amount"": ""50.00""}]",2026-06-23T13:54:13.073355+08:00,4
