@@ -1,4 +1,9 @@
 id,account_name,date,category,notes,items,created_at,account
+231,Today Sales,2026-06-26,Salary,,"[{""date"": ""2026-06-26"", ""description"": ""momi salary"", ""amount"": ""287.00""}]",2026-06-26T21:03:26.924930+08:00,4
+230,Today Sales,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""bugas"", ""amount"": ""1160.00""}, {""date"": ""2026-06-26"", ""description"": ""dishwashing liquid"", ""amount"": ""150.00""}]",2026-06-26T20:58:13.098209+08:00,4
+229,Petty Cash,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""ice"", ""amount"": ""50.00""}]",2026-06-26T20:12:46.468100+08:00,1
+227,Petty Cash,2026-06-26,Food,,"[{""date"": ""2026-06-26"", ""description"": ""calamsi 1kilo"", ""amount"": ""90.00""}]",2026-06-26T18:59:55.520349+08:00,1
+225,Petty Cash,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""BASURA FEE"", ""amount"": ""50.00""}]",2026-06-26T11:42:10.115086+08:00,1
 224,Petty Cash,2026-06-25,Food,,"[{""date"": ""2026-06-25"", ""description"": ""Calamansi"", ""amount"": ""50.00""}]",2026-06-25T20:21:22.934163+08:00,1
 223,Petty Cash,2026-06-25,,,"[{""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Lhei ) 6/24/2026"", ""amount"": ""20.00""}, {""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Brando ) 6/24/2026"", ""amount"": ""50.00""}]",2026-06-25T20:01:53.394486+08:00,1
 222,Today Sales,2026-06-25,,,"[{""date"": ""2026-06-25"", ""description"": ""ice"", ""amount"": ""50.00""}, {""date"": ""2026-06-25"", ""description"": ""Cash Advance ( Brando )"", ""amount"": ""50.00""}]",2026-06-25T19:59:09.693633+08:00,4
