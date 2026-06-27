@@ -1,4 +1,5 @@
 id,account_name,date,category,notes,items,created_at,account
+232,Savings,2026-06-28,Salary,May utang sia na 25 PHP,"[{""date"": ""2026-06-28"", ""description"": ""1x Brando"", ""amount"": ""1500.00""}]",2026-06-28T00:34:23.631774+08:00,2
 231,Today Sales,2026-06-26,Salary,,"[{""date"": ""2026-06-26"", ""description"": ""momi salary"", ""amount"": ""287.00""}]",2026-06-26T21:03:26.924930+08:00,4
 230,Today Sales,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""bugas"", ""amount"": ""1160.00""}, {""date"": ""2026-06-26"", ""description"": ""dishwashing liquid"", ""amount"": ""150.00""}]",2026-06-26T20:58:13.098209+08:00,4
 229,Petty Cash,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""ice"", ""amount"": ""50.00""}]",2026-06-26T20:12:46.468100+08:00,1
