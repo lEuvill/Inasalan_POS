@@ -1,4 +1,15 @@
 id,account_name,date,category,notes,items,created_at,account
+251,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""Lhei Salary"", ""amount"": ""2268.00""}]",2026-06-29T23:05:34.147837+08:00,4
+250,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""Roy CA"", ""amount"": ""100.00""}]",2026-06-29T20:38:52.323104+08:00,4
+249,Today Sales,2026-06-29,Rent,,"[{""date"": ""2026-06-29"", ""description"": ""Rent"", ""amount"": ""1500.00""}]",2026-06-29T20:02:03.671896+08:00,4
+248,Petty Cash,2026-06-29,Rent,,"[{""date"": ""2026-06-29"", ""description"": ""Rent"", ""amount"": ""1500.00""}]",2026-06-29T20:01:48.175590+08:00,1
+247,Savings,2026-06-29,Rent,,"[{""date"": ""2026-06-29"", ""description"": ""Rent"", ""amount"": ""17000.00""}]",2026-06-29T20:01:34.654579+08:00,2
+246,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""Gio Salary"", ""amount"": ""1462.00""}]",2026-06-29T17:44:46.734607+08:00,4
+245,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""Luis CA"", ""amount"": ""500.00""}]",2026-06-29T17:25:39.361408+08:00,4
+244,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""Lhei CA"", ""amount"": ""20.00""}]",2026-06-29T17:21:01.199426+08:00,4
+243,Today Sales,2026-06-29,Salary,,"[{""date"": ""2026-06-29"", ""description"": ""OJT Allowance"", ""amount"": ""100.00""}]",2026-06-29T17:13:20.664414+08:00,4
+242,ruth,2026-06-29,Supplies,,"[{""date"": ""2026-06-29"", ""description"": ""prycegas"", ""amount"": ""1165.00""}, {""date"": ""2026-06-29"", ""description"": ""uling"", ""amount"": ""400.00""}, {""date"": ""2026-06-29"", ""description"": ""sprite mismo"", ""amount"": ""198.00""}]",2026-06-29T12:42:12.719954+08:00,8
+240,Today Sales,2026-06-29,Other,dinagdag sa cash loan ung 100 para mag 1k,"[{""date"": ""2026-06-29"", ""description"": ""1x added funds to cashloan"", ""amount"": ""100.00""}]",2026-06-29T11:51:41.480982+08:00,4
 239,Today Sales,2026-06-28,Salary,,"[{""date"": ""2026-06-28"", ""description"": ""Lhei CA"", ""amount"": ""200.00""}]",2026-06-28T23:43:14.842937+08:00,4
 238,Today Sales,2026-06-28,Salary,,"[{""date"": ""2026-06-28"", ""description"": ""Brando CA"", ""amount"": ""100.00""}]",2026-06-28T23:42:58.901658+08:00,4
 237,Savings,2026-06-27,Transport,,"[{""date"": ""2026-06-27"", ""description"": ""Gas sa motor"", ""amount"": ""100.00""}]",2026-06-28T22:48:21.336724+08:00,2
