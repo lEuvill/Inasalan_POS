@@ -1,4 +1,11 @@
 id,account_name,date,category,notes,items,created_at,account
+239,Today Sales,2026-06-28,Salary,,"[{""date"": ""2026-06-28"", ""description"": ""Lhei CA"", ""amount"": ""200.00""}]",2026-06-28T23:43:14.842937+08:00,4
+238,Today Sales,2026-06-28,Salary,,"[{""date"": ""2026-06-28"", ""description"": ""Brando CA"", ""amount"": ""100.00""}]",2026-06-28T23:42:58.901658+08:00,4
+237,Savings,2026-06-27,Transport,,"[{""date"": ""2026-06-27"", ""description"": ""Gas sa motor"", ""amount"": ""100.00""}]",2026-06-28T22:48:21.336724+08:00,2
+236,Today Sales,2026-06-28,Salary,,"[{""date"": ""2026-06-28"", ""description"": ""Brando CA"", ""amount"": ""50.00""}]",2026-06-28T22:03:47.880863+08:00,4
+235,Today Sales,2026-06-28,Supplies,,"[{""date"": ""2026-06-28"", ""description"": ""rice"", ""amount"": ""100.00""}]",2026-06-28T20:15:58.117449+08:00,4
+234,Petty Cash,2026-06-28,Supplies,,"[{""date"": ""2026-06-28"", ""description"": ""Water"", ""amount"": ""100.00""}]",2026-06-28T20:12:41.100251+08:00,1
+233,Petty Cash,2026-06-28,Supplies,,"[{""date"": ""2026-06-28"", ""description"": ""Bawang"", ""amount"": ""450.00""}, {""date"": ""2026-06-28"", ""description"": ""Kalamansi"", ""amount"": ""300.00""}, {""date"": ""2026-06-28"", ""description"": ""Sili"", ""amount"": ""120.00""}, {""date"": ""2026-06-28"", ""description"": ""Egg 1 tray"", ""amount"": ""180.00""}, {""date"": ""2026-06-28"", ""description"": ""Red egg"", ""amount"": ""150.00""}, {""date"": ""2026-06-28"", ""description"": ""Asin"", ""amount"": ""70.00""}]",2026-06-28T20:11:10.143772+08:00,1
 232,Savings,2026-06-28,Salary,May utang sia na 25 PHP,"[{""date"": ""2026-06-28"", ""description"": ""1x Brando"", ""amount"": ""1500.00""}]",2026-06-28T00:34:23.631774+08:00,2
 231,Today Sales,2026-06-26,Salary,,"[{""date"": ""2026-06-26"", ""description"": ""momi salary"", ""amount"": ""287.00""}]",2026-06-26T21:03:26.924930+08:00,4
 230,Today Sales,2026-06-26,Supplies,,"[{""date"": ""2026-06-26"", ""description"": ""bugas"", ""amount"": ""1160.00""}, {""date"": ""2026-06-26"", ""description"": ""dishwashing liquid"", ""amount"": ""150.00""}]",2026-06-26T20:58:13.098209+08:00,4
