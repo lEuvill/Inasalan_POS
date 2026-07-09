@@ -160,6 +160,10 @@ class Transaction(models.Model):
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='transaction')
     android_id = models.IntegerField(unique=True, null=True, blank=True)
     total = models.DecimalField(max_digits=10, decimal_places=2)
+    # Snapshot of how the sale was paid, captured at completion time. Kept on the
+    # Transaction (not read live from Order) so later edits to Order.payment_method
+    # cannot silently move a closed day's cash reconciliation.
+    payment_method = models.CharField(max_length=20, choices=Order.PaymentMethod.choices, blank=True)
     completed_at = models.DateTimeField()
 
     class Meta:

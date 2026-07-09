@@ -1,0 +1,139 @@
+================================================================
+INASALAN POS — FINANCE REPORT
+Period covered: June 1–30, 2026 (expenses vs sales)
+Prepared: July 7, 2026
+Sources: Expense.txt, inasalan_transactions_2026-07-07.csv
+================================================================
+
+1. BOTTOM LINE — JUNE 2026
+----------------------------------------------------------------
+Sales (741 completed orders)............  PHP 265,812.40
+Expenses (356 recorded line items)......  PHP 204,293.68
+                                          ---------------
+NET (before any unrecorded costs).......  PHP  61,518.72
+Profit margin...........................  ~23% of sales
+
+Average sales per day...................  PHP 8,860 (30 selling days)
+Best day................................  Sat June 21 — PHP 14,327
+Slowest day.............................  Wed June 3  — PHP 3,832
+
+Month-to-month context (from the transactions file):
+  May 2026 sales:  PHP 306,349   <- June was DOWN ~13% vs May
+  June 2026 sales: PHP 265,812
+  July 1-7 so far: PHP  62,595   (~PHP 8,900/day — on pace with June)
+
+2. WHERE THE MONEY GOES (June expenses by category)
+----------------------------------------------------------------
+  Labor (salaries + cash advances)....  53,367.50   26.1%
+  Meat (chicken & pork)...............  46,874.00   22.9%
+  Food ingredients & kitchen supplies.  20,100.80    9.8%
+  Rent................................  20,000.00    9.8%
+  Loan / debt payments................  16,268.28    8.0%
+  Fuel & energy (LPG/charcoal/gas)....  14,261.00    7.0%
+  Beverages & dessert supplies........  12,731.10    6.2%
+  Other supplies & misc...............   8,951.00    4.4%
+  Rice................................   8,605.00    4.2%
+  Admin / permits (BIR, OR booklets)..   3,135.00    1.5%
+                                        ----------
+  TOTAL............................... 204,293.68
+
+Biggest single expense lines in June:
+  Rent (17:1.5:1.5)........................ 20,000.00
+  60k loan payment (2 of 12)...............  8,089.95
+  Atome loan...............................  4,493.33
+  HomeCredit (Hector's account)............  3,685.00
+  Whole Chicken Sadia 36kg (June 1)........  4,896.00
+  Liempo Seara 17.94kg box.................  4,216.00
+
+Notes on the expense data:
+  * "Unknown Expense" / "No Details" lines total roughly PHP 2,300
+    in June. These are untraceable — worth tightening up.
+  * Cash advances (CA) to staff appear almost daily in small
+    amounts (Luis, Brando, Lhei, Roi, Jeremy, Paul). They are
+    inside the labor total but hard to reconcile against payroll.
+  * Debt service (loans + HomeCredit + Atome) is PHP 16,268/month
+    — that is 26% of your net profit going to loan payments.
+
+3. WHAT SELLS BEST (June 2026, by revenue)
+----------------------------------------------------------------
+  Item                          Qty     Revenue
+  Pechopak - Unli               294    52,411.20   <- #1 by far
+  Leg - Unli                    236    37,492.20
+  Leg - Meal                    167    24,704.20
+  Pechopak - Meal               124    20,651.80
+  Liempo - Unli                  95    18,905.00
+  Liempo - Meal                  91    17,010.00
+  BBQ - Meal                    122    16,707.80
+  Icetea - Pitcher               65     8,385.00
+  Wings - One Piece Meal        105     8,279.20
+  BBQ - Unli                     51     7,599.00
+  Choco Ice cream fudge          44     6,556.00
+  Wings - Meal                   50     6,398.40
+  Icetea - Glass                160     6,232.20
+
+By product family (June):
+  Pechopak (all variants)....... ~PHP 76,300   (29% of sales)
+  Leg (all variants)............ ~PHP 66,400   (25%)
+  Liempo........................ ~PHP 35,900   (14%)
+  BBQ........................... ~PHP 27,100   (10%)
+  Wings......................... ~PHP 18,000    (7%)
+  Icetea........................ ~PHP 14,600    (5.5%)
+
+Unli items alone = ~PHP 116,400 (44% of June sales). Your business
+runs on unli rice chicken meals, led by Pechopak.
+
+Channel mix (all time): Dine-in 75% of revenue, Take-out 9%,
+Delivery only 38 orders total (~PHP 15.5k) — barely used.
+Payments: roughly 84% cash / 16% GCash where recorded.
+
+4. RECOMMENDATIONS
+----------------------------------------------------------------
+a) Protect the Pechopak + Leg unli business. Half your revenue is
+   4 items. Never run out of whole chicken on weekends — June 21
+   (a Saturday, PHP 14.3k) shows weekend peak is nearly 4x the
+   slowest weekday. Buy chicken against a weekend forecast, not
+   flat per-day amounts.
+
+b) Chicken/pork is your #2 cost (PHP 46.9k). You buy from Sadia
+   and Seara in small 11–24 kg boxes many times a month, plus
+   emergency "Raw Chicken" buys (PHP 1,000–4,200 on June 10 —
+   likely a stock-out). Consolidating into 1–2 scheduled bulk
+   orders per week should get a better per-kilo price and avoid
+   panic buying.
+
+c) Loans are eating 26% of profit. PHP 16.3k/month goes to the
+   60k loan (10 payments left), Atome, and HomeCredit. If sales
+   hold, prioritize killing the smallest loan first to free up
+   monthly cash. Avoid new installment purchases until at least
+   one is cleared.
+
+d) Tighten cash controls:
+   - Log every expense with a description (no more "Unknown").
+   - Move staff cash advances to a fixed weekly cap and record
+     them against each person's payroll — small daily CAs (50–500)
+     are scattered through the ledger and easy to lose track of.
+
+e) Slow-day promo: Tuesdays/Wednesdays (June 3 = PHP 3.8k) drag
+   the average down. A weekday-only offer on Wings or BBQ (your
+   cheaper proteins, currently underperforming) fills slow days
+   without discounting the star Pechopak items.
+
+f) Push drinks attachment. Icetea is high-margin and already sells
+   well (PHP 14.6k). Train staff to offer a pitcher upgrade on
+   every group dine-in table — pitcher (129) vs 4 glasses (156)
+   feels like a deal to customers and beats mismo-coke margins,
+   since softdrinks cost you ~PHP 12.7k/month in purchases.
+
+g) June sales dropped 13% vs May. Watch July closely (first week
+   is pacing at June's level, not May's). If the dip holds, the
+   fastest levers are the weekday promo (e) and reactivating
+   delivery — only 38 delivery orders ever, with a fee already
+   built into the POS.
+
+================================================================
+Method notes: expense total excludes the "Total Expense" subtotal
+row and one bare 7,627 figure with no description (to avoid double
+counting). Item revenues account for line-item discounts. Sales =
+completed transactions in the POS export; any off-POS sales are
+not included.
+================================================================

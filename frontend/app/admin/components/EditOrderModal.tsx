@@ -1,8 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { api, Order, Product, OrderItem, ProductVariation, PaymentMethod } from '@/app/lib/api'
+import { api, Order, Product, OrderItem, ProductVariation, PaymentMethod, OrderType } from '@/app/lib/api'
 import { VariationPicker } from '@/app/components/VariationPicker'
+
+const ORDER_TYPES: { key: OrderType; label: string }[] = [
+  { key: 'DINE_IN',  label: 'Dine In' },
+  { key: 'TAKE_OUT', label: 'Take Out' },
+  { key: 'DELIVERY', label: 'Delivery' },
+  { key: 'PICK_UP',  label: 'Pick Up' },
+]
 
 export function EditOrderModal({
   orderId,
@@ -17,6 +24,7 @@ export function EditOrderModal({
   const [products, setProducts] = useState<Product[]>([])
   const [cart, setCart] = useState<OrderItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [orderType, setOrderType] = useState<OrderType | ''>('')
   const [slipNumber, setSlipNumber] = useState('')
   const [completedAt, setCompletedAt] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -29,6 +37,7 @@ export function EditOrderModal({
       setOrder(ord)
       setCart(ord.items_json)
       setPaymentMethod(ord.payment_method)
+      setOrderType(ord.order_type)
       if (ord.transaction?.completed_at) {
         const d = new Date(ord.transaction.completed_at)
         const pad = (n: number) => String(n).padStart(2, '0')
@@ -43,10 +52,13 @@ export function EditOrderModal({
   const categories = ['All', ...new Set(products.map(p => p.category).filter(Boolean))]
   const visible = activeCategory === 'All' ? products : products.filter(p => p.category === activeCategory)
 
+  // Merge only into plain lines (no discount, not tagged take-out) so split
+  // lines created in take-order keep their own identity.
   const pushToCart = (productId: number, name: string, price: number) => {
     setCart(prev => {
-      const existing = prev.find(i => i.name === name)
-      if (existing) return prev.map(i => i.name === name ? { ...i, quantity: i.quantity + 1 } : i)
+      const matches = (i: OrderItem) => i.name === name && !(i.discount ?? 0) && !i.takeout
+      const existing = prev.find(matches)
+      if (existing) return prev.map(i => matches(i) ? { ...i, quantity: i.quantity + 1 } : i)
       return [...prev, { productId, name, price, quantity: 1 }]
     })
   }
@@ -59,28 +71,50 @@ export function EditOrderModal({
     }
   }
 
-  const updateQty = (name: string, delta: number) => {
+  const updateQty = (idx: number, delta: number) => {
     setCart(prev =>
-      prev.map(i => i.name === name ? { ...i, quantity: i.quantity + delta } : i)
+      prev.map((i, ii) => ii === idx ? { ...i, quantity: i.quantity + delta } : i)
           .filter(i => i.quantity > 0)
     )
+  }
+
+  const toggleTakeout = (idx: number) => {
+    setCart(prev => {
+      const item = prev[idx]
+      if (!item) return prev
+      if (item.takeout) {
+        return prev.map((i, ii) => ii === idx ? { ...i, takeout: undefined } : i)
+      }
+      if (item.quantity <= 1) {
+        return prev.map((i, ii) => ii === idx ? { ...i, takeout: true } : i)
+      }
+      const result = [...prev]
+      result.splice(idx, 1,
+        { ...item, quantity: item.quantity - 1 },
+        { ...item, quantity: 1, takeout: true },
+      )
+      return result
+    })
   }
 
   const cartCountFor = (productId: number) =>
     cart.filter(i => i.productId === productId).reduce((s, i) => s + i.quantity, 0)
 
-  const [pendingEdit, setPendingEdit] = useState<{ item: OrderItem; product: Product } | null>(null)
+  const [pendingEdit, setPendingEdit] = useState<{ idx: number; item: OrderItem; product: Product } | null>(null)
 
-  const replaceVariation = (oldName: string, newName: string, newPrice: number, productId: number, qty: number) => {
+  const replaceVariation = (idx: number, newName: string, newPrice: number, productId: number) => {
     setCart(prev => {
-      const pos = prev.findIndex(i => i.name === oldName)
-      const without = prev.filter(i => i.name !== oldName)
-      const existing = without.find(i => i.name === newName)
-      if (existing) {
-        return without.map(i => i.name === newName ? { ...i, quantity: i.quantity + qty } : i)
+      const item = prev[idx]
+      if (!item) return prev
+      const without = prev.filter((_, ii) => ii !== idx)
+      const matches = (i: OrderItem) =>
+        i.name === newName && (i.discount ?? 0) === (item.discount ?? 0) && (i.takeout ?? false) === (item.takeout ?? false)
+      const existingIdx = without.findIndex(matches)
+      if (existingIdx >= 0) {
+        return without.map((i, ii) => ii === existingIdx ? { ...i, quantity: i.quantity + item.quantity } : i)
       }
       const result = [...without]
-      result.splice(pos, 0, { productId, name: newName, price: newPrice, quantity: qty })
+      result.splice(Math.min(idx, result.length), 0, { ...item, productId, name: newName, price: newPrice })
       return result
     })
   }
@@ -93,12 +127,15 @@ export function EditOrderModal({
     try {
       const patchData: Parameters<typeof api.patchOrder>[1] = { items_json: cart, total }
       if (paymentMethod) patchData.payment_method = paymentMethod as PaymentMethod
+      if (orderType) patchData.order_type = orderType as OrderType
       if (slipNumber !== (order.slip_number ?? '')) patchData.slip_number = slipNumber
       const updated = await api.patchOrder(order.id, patchData)
-      // If completed, also update the linked transaction total and date
+      // If completed, also update the linked transaction total, date, and payment
+      // snapshot so an intentional correction here is reflected in reconciliation.
       if (updated.transaction) {
-        const txPatch: { total?: number; completed_at?: string } = { total }
+        const txPatch: { total?: number; completed_at?: string; payment_method?: PaymentMethod } = { total }
         if (completedAt) txPatch.completed_at = new Date(completedAt).toISOString()
+        if (paymentMethod) txPatch.payment_method = paymentMethod as PaymentMethod
         await api.patchTransaction(updated.transaction.id, txPatch)
       }
       onSaved(updated)
@@ -191,31 +228,42 @@ export function EditOrderModal({
               <div className="flex-1 overflow-y-auto px-4 space-y-2">
                 {cart.length === 0 ? (
                   <p className="text-gray-400 text-sm text-center pt-8">No items</p>
-                ) : cart.map(item => {
+                ) : cart.map((item, idx) => {
                   const parentProduct = products.find(p => p.id === item.productId)
                   const isVariation = parentProduct && parentProduct.variations && parentProduct.variations.length > 0
                   return (
-                    <div key={item.name} className="flex items-center gap-2">
+                    <div key={idx} className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
                         <div className="flex items-center gap-2">
                           <p className="text-xs text-gray-400">₱{item.price.toFixed(2)}</p>
                           {isVariation && (
                             <button
-                              onClick={() => setPendingEdit({ item, product: parentProduct! })}
+                              onClick={() => setPendingEdit({ idx, item, product: parentProduct! })}
                               className="text-xs text-brand font-semibold hover:underline leading-none"
                             >change</button>
+                          )}
+                          {orderType === 'DINE_IN' && (
+                            <button
+                              onClick={() => toggleTakeout(idx)}
+                              title={item.takeout ? 'Tap to serve as dine-in' : 'Tap to pack as take-out'}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none transition-colors ${
+                                item.takeout
+                                  ? 'bg-blue-500 text-white'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
+                              }`}
+                            >{item.takeout ? '🥡 TAKE OUT' : 'T.O.'}</button>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
-                          onClick={() => updateQty(item.name, -1)}
+                          onClick={() => updateQty(idx, -1)}
                           className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-sm font-bold flex items-center justify-center hover:bg-gray-200"
                         >−</button>
                         <span className="w-5 text-center text-sm font-semibold">{item.quantity}</span>
                         <button
-                          onClick={() => updateQty(item.name, 1)}
+                          onClick={() => updateQty(idx, 1)}
                           className="w-6 h-6 rounded-full bg-brand text-white text-sm font-bold flex items-center justify-center hover:bg-brand-dark"
                         >+</button>
                       </div>
@@ -255,6 +303,22 @@ export function EditOrderModal({
                     />
                   </div>
                 )}
+                {/* Order type */}
+                <div>
+                  <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide block mb-1">Order Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ORDER_TYPES.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() => setOrderType(key)}
+                        className={`py-1.5 rounded-lg text-xs font-bold border transition-colors
+                          ${orderType === key
+                            ? 'bg-brand border-brand text-white'
+                            : 'bg-white border-gray-200 text-gray-400 hover:border-brand'}`}
+                      >{label}</button>
+                    ))}
+                  </div>
+                </div>
                 {/* Payment method toggle */}
                 <div className="flex gap-2">
                   <button
@@ -305,7 +369,7 @@ export function EditOrderModal({
         onSelect={(v: ProductVariation) => {
           const newName = `${pendingEdit.product.name} - ${v.name}`
           if (newName !== pendingEdit.item.name) {
-            replaceVariation(pendingEdit.item.name, newName, parseFloat(v.price), pendingEdit.product.id, pendingEdit.item.quantity)
+            replaceVariation(pendingEdit.idx, newName, parseFloat(v.price), pendingEdit.product.id)
           }
           setPendingEdit(null)
         }}

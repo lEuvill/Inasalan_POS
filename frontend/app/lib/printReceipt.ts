@@ -181,7 +181,8 @@ export function printReceipt(data: ReceiptData) {
     const discRow = disc > 0
       ? `<div class="pr-row pr-disc-row"><span>(${disc}% off)</span><span>-&#8369;${discSaving.toFixed(2)}</span></div>`
       : ''
-    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
+    const toMark = item.takeout ? ' [TAKE OUT]' : ''
+    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}${toMark}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
   }).join('')
 
   const metaSlip  = data.slipNumber    ? `<div class="pr-row pr-meta"><span>Slip #</span><span>${escHtml(data.slipNumber)}</span></div>` : ''
@@ -254,7 +255,7 @@ export function printKitchenOrder(data: ReceiptData) {
     data.orderType   ? `<div class="kp-type">${ORDER_TYPE_LABEL[data.orderType] ?? data.orderType}</div>` : '',
     data.tableNumber ? `<div class="kp-table">${escHtml(data.tableNumber)}</div>` : '',
     `<div class="kp-divider"></div>`,
-    data.items.map(i => `<div class="kp-item">${i.quantity}x ${escHtml(i.name)}</div>`).join(''),
+    data.items.map(i => `<div class="kp-item">${i.quantity}x ${escHtml(i.name)}${i.takeout ? ' [TAKE OUT]' : ''}</div>`).join(''),
   ].join('')
 
   const buildCss = (hMm: number) => [
@@ -342,7 +343,8 @@ export function printCashierReceipt(data: ReceiptData) {
     const discRow = disc > 0
       ? `<div class="pr-row pr-disc-row"><span>(${disc}% off)</span><span>-&#8369;${discSaving.toFixed(2)}</span></div>`
       : ''
-    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
+    const toMark = item.takeout ? ' [TAKE OUT]' : ''
+    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}${toMark}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
   }).join('')
 
   const metaSlip  = data.slipNumber    ? `<div class="pr-row pr-meta"><span>Slip #</span><span>${escHtml(data.slipNumber)}</span></div>` : ''

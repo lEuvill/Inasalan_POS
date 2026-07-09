@@ -118,8 +118,9 @@ function AccountModal({
 export default function ExpensesPage() {
   const [expenses, setExpenses]     = useState<Expense[]>([])
   const [accounts, setAccounts]     = useState<CashAccount[]>([])
-  const [todaySalesTotal, setTodaySalesTotal] = useState(0)
+  const [sales, setSales]           = useState({ cash: 0, gcash: 0, other: 0, count: 0, total: 0 })
   const [loading, setLoading]       = useState(true)
+  const todaySalesTotal = sales.cash
 
   // ── form ──
   const [category, setCategory]   = useState('')
@@ -137,10 +138,10 @@ export default function ExpensesPage() {
   const [deleteAccountId, setDeleteAccountId] = useState<number | null>(null)
 
   useEffect(() => {
-    Promise.all([api.getExpenses(), api.getAccounts(), api.getTodaySalesTotal()]).then(([exps, accs, salesTotal]) => {
+    Promise.all([api.getExpenses(), api.getAccounts(), api.getTodaySalesBreakdown()]).then(([exps, accs, breakdown]) => {
       setExpenses(exps)
       setAccounts(accs)
-      setTodaySalesTotal(salesTotal)
+      setSales(breakdown)
       setLoading(false)
     })
   }, [])
@@ -330,6 +331,51 @@ export default function ExpensesPage() {
           </div>
         )}
       </div>
+
+      {/* ── Today's reconciliation ── */}
+      {(() => {
+        const todayStr = today()
+        const salesAcct = accounts.find(isTodaySalesAccount)
+        const cashPaidOut = salesAcct
+          ? expenses.filter(e => e.account === salesAcct.id && e.date === todayStr).reduce((s, e) => s + expenseTotal(e), 0)
+          : 0
+        const expectedCash = sales.cash - cashPaidOut
+        return (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-700">Today&apos;s Reconciliation</h3>
+              <span className="text-xs text-gray-400">{sales.count} sale{sales.count !== 1 ? 's' : ''} · {fmtDate(todayStr)}</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border-2 border-green-100 bg-green-50/60 p-4">
+                <p className="text-[10px] font-bold text-green-600 uppercase tracking-wide">Expected Cash in Drawer</p>
+                <p className={`text-2xl font-black tabular-nums mt-1 ${expectedCash < 0 ? 'text-red-500' : 'text-green-700'}`}>{fmtPeso(expectedCash)}</p>
+                <p className="text-[10px] text-gray-400 mt-1">{fmtPeso(sales.cash)} cash − {fmtPeso(cashPaidOut)} paid out</p>
+              </div>
+              <div className="rounded-xl border border-sky-100 bg-sky-50/60 p-4">
+                <p className="text-[10px] font-bold text-sky-600 uppercase tracking-wide">GCash Collected</p>
+                <p className="text-2xl font-black tabular-nums mt-1 text-sky-700">{fmtPeso(sales.gcash)}</p>
+                <p className="text-[10px] text-gray-400 mt-1">not in the drawer</p>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Total Sales</p>
+                <p className="text-2xl font-black tabular-nums mt-1 text-gray-800">{fmtPeso(sales.total)}</p>
+                {sales.other > 0 && <p className="text-[10px] text-amber-500 mt-1">{fmtPeso(sales.other)} unspecified method</p>}
+              </div>
+              <div className="rounded-xl border border-red-100 bg-red-50/50 p-4">
+                <p className="text-[10px] font-bold text-red-500 uppercase tracking-wide">Cash Paid Out</p>
+                <p className="text-2xl font-black tabular-nums mt-1 text-red-500">{fmtPeso(cashPaidOut)}</p>
+                <p className="text-[10px] text-gray-400 mt-1">today&apos;s drawer expenses</p>
+              </div>
+            </div>
+            {sales.other > 0 && (
+              <p className="text-[11px] text-amber-600 mt-3">
+                ⚠ {fmtPeso(sales.other)} of sales have no payment method recorded — set each order to Cash or GCash so the drawer reconciles.
+              </p>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
 

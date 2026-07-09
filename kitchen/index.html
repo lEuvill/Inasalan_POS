@@ -98,6 +98,12 @@
     .item-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
     .item-name { color: #e5e7eb; font-weight: 500; }
     .item-qty  { color: #F5A623; font-weight: 700; }
+    .takeout-tag {
+      display: inline-block; margin-left: 6px; padding: 1px 6px;
+      border-radius: 999px; background: #2563eb; color: #fff;
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
 
     .card-footer {
       display: flex; justify-content: space-between; align-items: center;
@@ -266,7 +272,9 @@
         for (var k = 0; k < items.length; k++) {
           itemsHtml +=
             '<li class="item-row">' +
-              '<span class="item-name">' + items[k].name + '</span>' +
+              '<span class="item-name">' + items[k].name +
+                (items[k].takeout ? '<span class="takeout-tag">TAKE OUT</span>' : '') +
+              '</span>' +
               '<span class="item-qty">&times;' + items[k].quantity + '</span>' +
             '</li>';
         }

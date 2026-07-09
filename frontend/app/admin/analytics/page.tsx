@@ -242,7 +242,7 @@ function buildOrderTypeData(txns: Transaction[]) {
 function buildPaymentData(txns: Transaction[]) {
   const map = new Map<string, { count: number; revenue: number }>()
   for (const t of txns) {
-    const key = t.order_detail?.payment_method || 'Unknown'
+    const key = t.payment_method || t.order_detail?.payment_method || 'Unknown'
     const cur = map.get(key) ?? { count: 0, revenue: 0 }
     cur.count++
     cur.revenue += parseFloat(t.total)
@@ -396,7 +396,7 @@ export default function AnalyticsPage() {
   const [products, setProducts]         = useState<Product[]>([])
   const [loading, setLoading]           = useState(true)
 
-  const [preset, setPreset]             = useState<Preset>('30d')
+  const [preset, setPreset]             = useState<Preset>('today')
   const [customStart, setCustomStart]   = useState('')
   const [customEnd, setCustomEnd]       = useState('')
   const [topBy, setTopBy]               = useState<TopBy>('revenue')

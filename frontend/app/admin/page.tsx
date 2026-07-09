@@ -40,6 +40,11 @@ const formatTime = (iso: string) => {
   return d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+const formatDateTime = (iso: string) => {
+  const d = new Date(iso)
+  return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
 // ── Void confirm modal ────────────────────────────────────────────────────────
 
 const VOID_PIN = process.env.NEXT_PUBLIC_VOID_PIN ?? '0000'
@@ -224,6 +229,7 @@ export default function DashboardPage() {
   const [showPrintSettings, setShowPrintSettings] = useState(false)
   const [modeFilter, setModeFilter] = useState<OrderMode | 'ALL'>('ALL')
   const [unpaidCollapsed, setUnpaidCollapsed] = useState(false)
+  const [showLongTerm, setShowLongTerm] = useState(false)
   useEffect(() => {
     const saved = localStorage.getItem('pos_dashboard_mode_filter')
     if (saved === 'ALL' || saved === 'REGULAR' || saved === 'EMPLOYEE' || saved === 'WASTE') setModeFilter(saved)
@@ -259,21 +265,28 @@ export default function DashboardPage() {
   const toLocalDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   const todayStr = toLocalDate(new Date())
+  const isToday = (o: Order) => toLocalDate(new Date(o.created_at)) === todayStr
 
   const displayed = modeFilter === 'ALL'
     ? activeOrders
     : activeOrders.filter(o => (o.order_mode ?? 'REGULAR') === modeFilter)
 
-  // Sort oldest-first so queue position reflects placement order
+  // Sort oldest-first so queue position reflects placement order.
+  // Orders carried over from previous days ("long-term unpaid") are pulled out
+  // of the normal sections and hidden behind a toggle.
   const sortedDisplayed = [...displayed].sort((a, b) => a.id - b.id)
-  const unpaidSection = sortedDisplayed.filter(o => o.is_unpaid)
-  const queueSection  = sortedDisplayed.filter(o => !o.is_unpaid)
+  const longTermSection = sortedDisplayed.filter(o => !isToday(o))
+  const todayOrders     = sortedDisplayed.filter(isToday)
+  const unpaidSection   = todayOrders.filter(o => o.is_unpaid)
+  const queueSection    = todayOrders.filter(o => !o.is_unpaid)
 
-  const todayTxns = transactions.filter(t => {
-    if (toLocalDate(new Date(t.completed_at)) !== todayStr) return false
-    if (modeFilter === 'ALL') return true
-    return (t.order_detail?.order_mode ?? 'REGULAR') === modeFilter
-  })
+  // Money metrics count REGULAR sales only — never EMPLOYEE/WASTE/BULK — so they
+  // reconcile with the Analytics page (which also defaults to REGULAR). The card
+  // mode filter below only scopes the active-orders list, not these totals.
+  const todayTxns = transactions.filter(t =>
+    toLocalDate(new Date(t.completed_at)) === todayStr &&
+    (t.order_detail?.order_mode ?? 'REGULAR') === 'REGULAR'
+  )
   const todayRevenue = todayTxns.reduce((sum, t) => sum + parseFloat(t.total), 0)
 
   const advance = async (order: Order) => {
@@ -334,7 +347,9 @@ export default function DashboardPage() {
                 {SOURCE_LABEL[order.source] ?? order.source}
               </span>
             </div>
-            <span className="text-xs text-gray-400 shrink-0 tabular-nums">{formatTime(order.created_at)}</span>
+            <span className="text-xs text-gray-400 shrink-0 tabular-nums">
+              {isToday(order) ? formatTime(order.created_at) : formatDateTime(order.created_at)}
+            </span>
           </div>
 
           {/* Customer name */}
@@ -373,7 +388,12 @@ export default function DashboardPage() {
       <ul className="text-xs text-gray-500 space-y-0.5 mb-3">
         {order.items_json.map((item, i) => (
           <li key={i} className="flex justify-between">
-            <span>{item.name} × {item.quantity}</span>
+            <span>
+              {item.name} × {item.quantity}
+              {item.takeout && (
+                <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">TAKE OUT</span>
+              )}
+            </span>
             <span>₱{(item.price * item.quantity).toFixed(2)}</span>
           </li>
         ))}
@@ -415,7 +435,7 @@ export default function DashboardPage() {
               onClick={() => setEditOrderId(order.id)}
               className="text-xs text-gray-400 hover:text-brand px-2 py-1.5 rounded-lg hover:bg-orange-50 transition-colors"
             >
-              + Add Items
+              ✎ Edit
             </button>
             <button
               onClick={() => setVoidOrderId(order.id)}
@@ -510,7 +530,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Orders */}
-      {displayed.length === 0 ? (
+      {todayOrders.length === 0 && longTermSection.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-gray-400 mb-4">
             {activeOrders.length === 0 ? 'No active orders right now' : `No ${modeFilter.toLowerCase()} orders right now`}
@@ -523,6 +543,29 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
+          {/* Long-term unpaid section — carried over from previous days, hidden by default */}
+          {longTermSection.length > 0 && (
+            <div className="mb-8">
+              <button
+                onClick={() => setShowLongTerm(s => !s)}
+                className="flex items-center gap-2 mb-3 w-full text-left group"
+              >
+                <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                <span className="text-sm font-bold text-amber-600 uppercase tracking-wide">Long-term Unpaid</span>
+                <span className="text-[11px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full">{longTermSection.length}</span>
+                <div className="flex-1 h-px bg-amber-100" />
+                <span className="text-xs text-amber-400 group-hover:text-amber-600 transition-colors shrink-0">
+                  {showLongTerm ? '▼ Hide' : '▶ Show'}
+                </span>
+              </button>
+              {showLongTerm && (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {longTermSection.map((order, i) => renderCard(order, i + 1))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Unpaid section */}
           {unpaidSection.length > 0 && (
             <div className="mb-8">
@@ -549,7 +592,7 @@ export default function DashboardPage() {
           {/* Active queue section */}
           {queueSection.length > 0 && (
             <div>
-              {unpaidSection.length > 0 && (
+              {(unpaidSection.length > 0 || longTermSection.length > 0) && (
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 rounded-full bg-orange-400 shrink-0" />
                   <span className="text-sm font-bold text-gray-600 uppercase tracking-wide">Queue</span>

@@ -29,6 +29,7 @@ export type OrderItem = {
   quantity: number
   discount?: number
   output_name?: string
+  takeout?: boolean   // item leaves as take-out within a dine-in order
 }
 
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOIDED'
@@ -60,6 +61,9 @@ export type Transaction = {
   order: number
   android_id: number | null
   total: string
+  // Payment method snapshotted at completion. Prefer this over order_detail.payment_method
+  // for cash reconciliation — it does not move when the order is later edited.
+  payment_method: PaymentMethod | ''
   completed_at: string
   order_detail: {
     id: number
@@ -198,23 +202,34 @@ export const api = {
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   voidOrder: (id: number) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ status: 'VOIDED' }) }),
-  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod; slip_number?: string }) =>
+  patchOrder: (id: number, data: { items_json: OrderItem[]; total: number; payment_method?: PaymentMethod; slip_number?: string; order_type?: OrderType }) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
   markPaid: (id: number) =>
     request<Order>(`/api/orders/${id}/`, { method: 'PATCH', body: JSON.stringify({ is_unpaid: false }) }),
 
   // Transactions
   getTransactions: () => request<Transaction[]>('/api/transactions/'),
-  getTodaySalesTotal: () => {
+  getTodaySalesTotal: () =>
+    api.getTodaySalesBreakdown().then(b => b.cash),
+  // Today's sales split by the snapshotted payment method, for cash-drawer reconciliation.
+  getTodaySalesBreakdown: () => {
     const now = new Date()
     const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    return request<Transaction[]>(`/api/transactions/?date=${localDate}`).then(
-      txns => txns
-        .filter(t => t.order_detail.payment_method === 'CASH')
-        .reduce((s, t) => s + parseFloat(t.total), 0)
-    )
+    return request<Transaction[]>(`/api/transactions/?date=${localDate}`).then(txns => {
+      const acc = { cash: 0, gcash: 0, other: 0, count: txns.length, total: 0 }
+      for (const t of txns) {
+        const amt = parseFloat(t.total)
+        acc.total += amt
+        // Prefer the snapshot; fall back to the live order for pre-migration rows.
+        const method = t.payment_method || t.order_detail.payment_method
+        if (method === 'CASH') acc.cash += amt
+        else if (method === 'GCASH') acc.gcash += amt
+        else acc.other += amt
+      }
+      return acc
+    })
   },
-  patchTransaction: (id: number, data: { total?: number; completed_at?: string }) =>
+  patchTransaction: (id: number, data: { total?: number; completed_at?: string; payment_method?: PaymentMethod }) =>
     request<Transaction>(`/api/transactions/${id}/`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Tables

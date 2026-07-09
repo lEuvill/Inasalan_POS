@@ -23,6 +23,7 @@ export default function TakeOrderPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [step, setStep]               = useState<OrderStep>('cart')
   const [amountTendered, setAmountTendered] = useState('')
+  const [gcashConfirmed, setGcashConfirmed] = useState(false)
   const [tableNumber, setTableNumber] = useState('')
   const [tables, setTables]           = useState<Table[]>([])
   const [isUnpaid, setIsUnpaid]             = useState(false)
@@ -109,6 +110,10 @@ export default function TakeOrderPage() {
     } else {
       setCart(prev => prev.filter(i => i.productId !== dfId))
     }
+    // Per-item takeout tags only make sense on a dine-in order
+    if (orderType !== 'DINE_IN') {
+      setCart(prev => prev.some(i => i.takeout) ? prev.map(i => i.takeout ? { ...i, takeout: undefined } : i) : prev)
+    }
   }, [orderType, dfId, dfProduct, dfOutputNames])
 
   const scrollToCategory = (cat: string) => {
@@ -139,8 +144,8 @@ export default function TakeOrderPage() {
       }
     }
     setCart(prev => {
-      const existing = prev.find(i => i.name === name && !(i.discount ?? 0))
-      if (existing) return prev.map(i => (i.name === name && !(i.discount ?? 0)) ? { ...i, quantity: i.quantity + 1 } : i)
+      const existing = prev.find(i => i.name === name && !(i.discount ?? 0) && !i.takeout)
+      if (existing) return prev.map(i => (i.name === name && !(i.discount ?? 0) && !i.takeout) ? { ...i, quantity: i.quantity + 1 } : i)
       return [...prev, { productId, name, price, quantity: 1, discount: 0 }]
     })
   }
@@ -168,6 +173,27 @@ export default function TakeOrderPage() {
       return result
     })
     setDiscountEdit(null)
+  }
+
+  // Tag one unit of a line as take-out (dine-in customer packing part of the
+  // order to go). Splits multi-qty lines like applyDiscount does.
+  const toggleTakeout = (idx: number) => {
+    setCart(prev => {
+      const item = prev[idx]
+      if (!item) return prev
+      if (item.takeout) {
+        return prev.map((i, ii) => ii === idx ? { ...i, takeout: undefined } : i)
+      }
+      if (item.quantity <= 1) {
+        return prev.map((i, ii) => ii === idx ? { ...i, takeout: true } : i)
+      }
+      const result = [...prev]
+      result.splice(idx, 1,
+        { ...item, quantity: item.quantity - 1 },
+        { ...item, quantity: 1, takeout: true },
+      )
+      return result
+    })
   }
 
   const setDfPrice = (price: number) => {
@@ -213,13 +239,14 @@ export default function TakeOrderPage() {
     setCart(prev => {
       const item = prev[idx]
       if (!item) return prev
+      const takeout = item.takeout ?? false
       const without = prev.filter((_, ii) => ii !== idx)
-      const existingIdx = without.findIndex(i => i.name === newName && (i.discount ?? 0) === discount)
+      const existingIdx = without.findIndex(i => i.name === newName && (i.discount ?? 0) === discount && (i.takeout ?? false) === takeout)
       if (existingIdx >= 0) {
         return without.map((i, ii) => ii === existingIdx ? { ...i, quantity: i.quantity + qty } : i)
       }
       const result = [...without]
-      result.splice(Math.min(idx, result.length), 0, { productId, name: newName, price: newPrice, quantity: qty, discount })
+      result.splice(Math.min(idx, result.length), 0, { productId, name: newName, price: newPrice, quantity: qty, discount, ...(takeout ? { takeout: true } : {}) })
       return result
     })
   }
@@ -286,6 +313,7 @@ export default function TakeOrderPage() {
       setCart([])
       setStep('cart')
       setAmountTendered('')
+      setGcashConfirmed(false)
       setTableNumber('')
       setOwnerName('')
       setIsUnpaid(false)
@@ -426,7 +454,7 @@ export default function TakeOrderPage() {
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Payment</span>
             <div className="flex gap-1">
               {([['CASH','Cash'],['GCASH','GCash']] as [PaymentMethod,string][]).map(([val, label]) => (
-                <button key={val} type="button" onClick={() => setPaymentMethod(val)}
+                <button key={val} type="button" onClick={() => { setPaymentMethod(val); setGcashConfirmed(false) }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors
                     ${paymentMethod === val ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                 >{label}</button>
@@ -669,6 +697,17 @@ export default function TakeOrderPage() {
                           {isVariation && !isEditingDiscount && (
                             <button onClick={() => setPendingEdit({ idx, item, product: parentProduct! })}
                               className="text-xs text-brand font-semibold hover:underline leading-none">change</button>
+                          )}
+                          {orderType === 'DINE_IN' && !isEditingDiscount && (
+                            <button onClick={() => toggleTakeout(idx)}
+                              title={item.takeout ? 'Tap to serve as dine-in' : 'Tap to pack as take-out'}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none transition-colors ${
+                                item.takeout
+                                  ? 'bg-blue-500 text-white'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
+                              }`}>
+                              {item.takeout ? '🥡 TAKE OUT' : 'T.O.'}
+                            </button>
                           )}
                         </>
                       )}
@@ -915,13 +954,24 @@ export default function TakeOrderPage() {
               )}
             </div>
           ) : (
-            <div className="px-6 py-8 flex flex-col items-center gap-3">
+            <div className="px-6 py-6 flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-sky-100 rounded-2xl flex items-center justify-center">
                 <span className="text-2xl font-black text-sky-500">G</span>
               </div>
               <p className="text-sm text-gray-500 text-center">
                 Collect <span className="font-bold text-gray-800">₱{total.toFixed(2)}</span> via GCash before confirming.
               </p>
+              <button type="button" onClick={() => setGcashConfirmed(v => !v)}
+                className={`w-full flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors
+                  ${gcashConfirmed ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-sky-300'}`}>
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-white text-sm font-black
+                  ${gcashConfirmed ? 'bg-green-500' : 'bg-gray-200'}`}>
+                  {gcashConfirmed ? '✓' : ''}
+                </span>
+                <span className={`text-sm font-bold ${gcashConfirmed ? 'text-green-700' : 'text-gray-600'}`}>
+                  GCash payment received
+                </span>
+              </button>
             </div>
           )}
 
@@ -929,7 +979,10 @@ export default function TakeOrderPage() {
             <button onClick={() => setStep('cart')}
               className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50">Back</button>
             <button onClick={() => setStep('table')}
-              disabled={!isUnpaid && paymentMethod === 'CASH' && (amountTendered === '' || parseFloat(amountTendered) < total)}
+              disabled={!isUnpaid && (
+                (paymentMethod === 'CASH' && (amountTendered === '' || parseFloat(amountTendered) < total)) ||
+                (paymentMethod === 'GCASH' && !gcashConfirmed)
+              )}
               className={`flex-1 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40 transition-colors ${isUnpaid ? 'bg-red-500 hover:bg-red-600' : 'bg-brand hover:bg-brand-dark'}`}>
               {isUnpaid ? 'Place as Unpaid' : 'Confirm Payment'}
             </button>

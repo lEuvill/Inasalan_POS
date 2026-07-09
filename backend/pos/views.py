@@ -184,7 +184,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                     completed_at = parsed
             Transaction.objects.get_or_create(
                 order=order,
-                defaults={'total': order.total, 'completed_at': completed_at},
+                defaults={'total': order.total, 'payment_method': order.payment_method, 'completed_at': completed_at},
             )
             # Deduct stock for live internal records (employee meals, waste, bulk).
             # History imports set a past completed_at and have order_mode=REGULAR so they skip this.
@@ -209,7 +209,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         if order.status == Order.Status.COMPLETED:
             Transaction.objects.get_or_create(
                 order=order,
-                defaults={'total': order.total, 'completed_at': timezone.now()},
+                defaults={'total': order.total, 'payment_method': order.payment_method, 'completed_at': timezone.now()},
             )
 
         # Deduct inventory for any net-new quantities added during the edit
@@ -618,7 +618,8 @@ class DataSyncView(APIView):
             ts = timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')
             r = self._git('commit', '-m', f'Data sync {ts}')
             if r.returncode != 0:
-                if 'nothing to commit' in (r.stdout + r.stderr).lower():
+                combined = (r.stdout + r.stderr).lower()
+                if any(p in combined for p in ('nothing to commit', 'nothing added to commit', 'no changes added to commit')):
                     return Response({'message': 'Up to date — nothing changed since last push.'})
                 return Response({'error': f'git commit: {(r.stderr or r.stdout).strip()}'}, status=500)
 
