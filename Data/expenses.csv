@@ -1,4 +1,57 @@
 id,account_name,date,category,notes,items,created_at,account
+423,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""to cl"", ""amount"": ""25.00""}]",2026-08-14T16:28:50.910372+08:00,4
+422,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""shy"", ""amount"": ""100.00""}]",2026-08-14T16:28:38.422725+08:00,4
+421,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""ice"", ""amount"": ""50.00""}]",2026-08-14T16:28:28.684918+08:00,4
+419,Today Sales,2026-08-14,Other,,"[{""date"": ""2026-08-14"", ""description"": ""Basura"", ""amount"": ""50.00""}]",2026-08-14T11:26:30.404416+08:00,4
+418,Today Sales,2026-08-14,Salary,,"[{""date"": ""2026-08-14"", ""description"": ""Salary Roi"", ""amount"": ""837.00""}]",2026-08-14T11:26:09.885538+08:00,4
+417,Today Sales,2026-08-09,Supplies,,"[{""date"": ""2026-08-09"", ""description"": ""Rice"", ""amount"": ""160.00""}]",2026-08-09T13:11:31.978415+08:00,4
+416,Today Sales,2026-07-29,,,"[{""date"": ""2026-07-29"", ""description"": ""1x Salary lali"", ""amount"": ""100.00""}]",2026-07-29T21:03:49.316043+08:00,4
+415,Today Sales,2026-07-29,,,"[{""date"": ""2026-07-29"", ""description"": ""transfer to savings"", ""amount"": ""1300.00""}]",2026-07-29T21:03:34.664577+08:00,4
+414,Today Sales,2026-07-29,Supplies,,"[{""date"": ""2026-07-29"", ""description"": ""1x ice"", ""amount"": ""50.00""}]",2026-07-29T21:00:59.604754+08:00,4
+413,Petty Cash,2026-07-29,Other,,"[{""date"": ""2026-07-29"", ""description"": ""1x Ruth"", ""amount"": ""362.00""}]",2026-07-29T21:00:31.937663+08:00,9
+412,Today Sales,2026-07-25,Supplies,,"[{""date"": ""2026-07-25"", ""description"": ""1x ice"", ""amount"": ""50.00""}]",2026-07-25T16:47:14.769723+08:00,4
+411,Today Sales,2026-07-23,,,"[{""date"": ""2026-07-23"", ""description"": ""1x Lali"", ""amount"": ""100.00""}]",2026-07-23T22:47:26.409319+08:00,4
+410,Today Sales,2026-07-23,Other,,"[{""date"": ""2026-07-23"", ""description"": ""1x Gasoline"", ""amount"": ""100.00""}]",2026-07-23T22:45:08.969117+08:00,4
+409,Today Sales,2026-07-23,Utilities,,"[{""date"": ""2026-07-23"", ""description"": ""1x Gloves"", ""amount"": ""120.00""}]",2026-07-23T22:44:44.665106+08:00,4
+408,Today Sales,2026-07-23,Other,,"[{""date"": ""2026-07-23"", ""description"": ""Construction Repairs"", ""amount"": ""695.00""}]",2026-07-23T22:44:17.029143+08:00,4
+407,Today Sales,2026-07-23,Supplies,,"[{""date"": ""2026-07-23"", ""description"": ""1x Lemon, 1x Calamansi, 1x Sili"", ""amount"": ""360.00""}]",2026-07-23T22:43:48.689343+08:00,4
+406,Today Sales,2026-07-23,Salary,,"[{""date"": ""2026-07-23"", ""description"": ""1x Salary Rhoi"", ""amount"": ""1675.00""}]",2026-07-23T22:40:49.526834+08:00,4
+405,Today Sales,2026-07-23,Other,,"[{""date"": ""2026-07-23"", ""description"": ""1x Ice"", ""amount"": ""50.00""}]",2026-07-23T18:38:39.919315+08:00,4
+404,Today Sales,2026-07-22,Supplies,,"[{""date"": ""2026-07-22"", ""description"": ""Uling"", ""amount"": ""400.00""}, {""date"": ""2026-07-22"", ""description"": ""Calamansi"", ""amount"": ""100.00""}]",2026-07-22T19:53:51.120722+08:00,4
+403,Today Sales,2026-07-22,Salary,,"[{""date"": ""2026-07-22"", ""description"": ""C.A. ROI"", ""amount"": ""50.00""}]",2026-07-22T17:02:15.754607+08:00,4
+402,Today Sales,2026-07-22,Salary,,"[{""date"": ""2026-07-22"", ""description"": ""C.A. Roi"", ""amount"": ""50.00""}]",2026-07-22T17:01:51.496476+08:00,4
+401,Today Sales,2026-07-22,,,"[{""date"": ""2026-07-22"", ""description"": ""CASH IN GCASH PAUL"", ""amount"": ""84.00""}]",2026-07-22T14:41:15.528878+08:00,4
+400,Today Sales,2026-07-22,Salary,,"[{""date"": ""2026-07-22"", ""description"": ""C.A. ROI"", ""amount"": ""100.00""}]",2026-07-22T14:40:12.253283+08:00,4
+399,Today Sales,2026-07-21,Salary,,"[{""date"": ""2026-07-21"", ""description"": ""Eruth Salary"", ""amount"": ""149.00""}]",2026-07-21T15:52:21.112807+08:00,4
+398,Today Sales,2026-07-21,Supplies,,"[{""date"": ""2026-07-21"", ""description"": ""Lemon"", ""amount"": ""250.00""}, {""date"": ""2026-07-21"", ""description"": ""Water"", ""amount"": ""125.00""}]",2026-07-21T15:51:00.592627+08:00,4
+397,Today Sales,2026-07-21,Utilities,,"[{""date"": ""2026-07-21"", ""description"": ""ice cube"", ""amount"": ""50.00""}]",2026-07-21T15:49:08.215022+08:00,4
+396,Today Sales,2026-07-20,Other,,"[{""date"": ""2026-07-20"", ""description"": ""1x Lali"", ""amount"": ""100.00""}]",2026-07-20T22:17:35.130161+08:00,4
+395,Today Sales,2026-07-20,Supplies,,"[{""date"": ""2026-07-20"", ""description"": ""Calamansi"", ""amount"": ""58.00""}]",2026-07-20T20:02:32.960933+08:00,4
+394,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Shylee Allowance"", ""amount"": ""100.00""}]",2026-07-19T22:38:37.864522+08:00,4
+393,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Ram Allowance"", ""amount"": ""50.00""}]",2026-07-19T22:38:24.114741+08:00,4
+392,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Joshua Cash Advance"", ""amount"": ""100.00""}]",2026-07-19T22:37:32.685010+08:00,4
+391,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Ruth"", ""amount"": ""129.00""}]",2026-07-19T22:37:12.668641+08:00,4
+390,Today Sales,2026-07-19,Transport,,"[{""date"": ""2026-07-19"", ""description"": ""Gasoline"", ""amount"": ""100.00""}]",2026-07-19T22:36:48.283208+08:00,4
+389,Today Sales,2026-07-19,Supplies,,"[{""date"": ""2026-07-19"", ""description"": ""Ice"", ""amount"": ""50.00""}]",2026-07-19T22:36:02.113559+08:00,4
+388,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Rhoi Cash Advance"", ""amount"": ""100.00""}]",2026-07-19T22:33:47.141944+08:00,4
+387,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Joshua"", ""amount"": ""100.00""}]",2026-07-19T22:33:06.787528+08:00,4
+386,Today Sales,2026-07-19,Salary,,"[{""date"": ""2026-07-19"", ""description"": ""Paul Salary"", ""amount"": ""387.00""}]",2026-07-19T22:32:23.954915+08:00,4
+385,Today Sales,2026-07-19,Supplies,,"[{""date"": ""2026-07-19"", ""description"": ""12x Nestea"", ""amount"": ""239.00""}]",2026-07-19T13:56:59.908731+08:00,4
+384,Today Sales,2026-07-19,Other,,"[{""date"": ""2026-07-19"", ""description"": ""Dishwashing"", ""amount"": ""155.00""}]",2026-07-19T13:55:16.873729+08:00,4
+383,Today Sales,2026-07-19,,,"[{""date"": ""2026-07-19"", ""description"": ""employees meal"", ""amount"": ""85.00""}]",2026-07-19T13:41:10.254764+08:00,4
+382,Today Sales,2026-07-19,,,"[{""date"": ""2026-07-19"", ""description"": ""1x Uling"", ""amount"": ""400.00""}]",2026-07-19T13:40:07.545628+08:00,4
+381,Today Sales,2026-07-18,Other,,"[{""date"": ""2026-07-18"", ""description"": ""ca mitoy"", ""amount"": ""200.00""}]",2026-07-18T19:25:06.283895+08:00,4
+380,Today Sales,2026-07-18,Other,,"[{""date"": ""2026-07-18"", ""description"": ""ca brando"", ""amount"": ""50.00""}]",2026-07-18T18:44:29.203447+08:00,4
+379,Today Sales,2026-07-18,Supplies,,"[{""date"": ""2026-07-18"", ""description"": ""BIGAS"", ""amount"": ""1120.00""}]",2026-07-18T17:17:27.203921+08:00,4
+378,Today Sales,2026-07-17,Salary,,"[{""date"": ""2026-07-17"", ""description"": ""Salary Mark"", ""amount"": ""937.00""}]",2026-07-17T23:58:31.364291+08:00,4
+377,Today Sales,2026-07-17,Other,,"[{""date"": ""2026-07-17"", ""description"": ""CA Lhei"", ""amount"": ""300.00""}]",2026-07-17T23:58:04.819524+08:00,4
+376,Today Sales,2026-07-17,Other,,"[{""date"": ""2026-07-17"", ""description"": ""Lali"", ""amount"": ""100.00""}]",2026-07-17T23:06:15.060951+08:00,4
+375,Today Sales,2026-07-17,Other,,"[{""date"": ""2026-07-17"", ""description"": ""Ice"", ""amount"": ""100.00""}]",2026-07-17T23:06:01.648332+08:00,4
+374,Today Sales,2026-07-16,Other,,"[{""date"": ""2026-07-16"", ""description"": ""lali"", ""amount"": ""100.00""}]",2026-07-16T22:58:03.428357+08:00,4
+373,Today Sales,2026-07-16,Other,,"[{""date"": ""2026-07-16"", ""description"": ""DETERGENT"", ""amount"": ""50.00""}]",2026-07-16T22:57:48.375934+08:00,4
+372,Today Sales,2026-07-16,Salary,,"[{""date"": ""2026-07-16"", ""description"": ""SAALARY ROI"", ""amount"": ""1587.00""}]",2026-07-16T22:56:55.162437+08:00,4
+371,Today Sales,2026-07-16,Other,,"[{""date"": ""2026-07-16"", ""description"": ""1x Ruth"", ""amount"": ""300.00""}]",2026-07-16T19:22:20.267967+08:00,4
+370,Today Sales,2026-07-16,Other,,"[{""date"": ""2026-07-16"", ""description"": ""CA Brando"", ""amount"": ""100.00""}]",2026-07-16T19:21:14.222122+08:00,4
 369,Today Sales,2026-07-15,Salary,,"[{""date"": ""2026-07-15"", ""description"": ""1x LUIS SALARY"", ""amount"": ""2250.00""}]",2026-07-15T23:34:21.768636+08:00,4
 368,Today Sales,2026-07-15,Other,,"[{""date"": ""2026-07-15"", ""description"": ""1x Kalamansi"", ""amount"": ""90.00""}]",2026-07-15T23:33:30.972714+08:00,4
 367,Today Sales,2026-07-15,Other,,"[{""date"": ""2026-07-15"", ""description"": ""transferred to pc"", ""amount"": ""5.00""}]",2026-07-15T23:32:29.503793+08:00,4
