@@ -1,4 +1,5 @@
 id,account_name,date,category,notes,items,created_at,account
+424,Today Sales,2026-09-01,,,"[{""date"": ""2026-09-01"", ""description"": ""Gasol"", ""amount"": ""1080.00""}]",2026-09-01T13:26:10.796364+08:00,4
 423,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""to cl"", ""amount"": ""25.00""}]",2026-08-14T16:28:50.910372+08:00,4
 422,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""shy"", ""amount"": ""100.00""}]",2026-08-14T16:28:38.422725+08:00,4
 421,Today Sales,2026-08-14,,,"[{""date"": ""2026-08-14"", ""description"": ""ice"", ""amount"": ""50.00""}]",2026-08-14T16:28:28.684918+08:00,4
