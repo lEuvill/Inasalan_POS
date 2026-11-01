@@ -71,7 +71,7 @@ export default function OrdersPage() {
               <ul className="text-sm text-gray-600 space-y-1 mb-4 border-t border-gray-50 pt-3">
                 {order.items_json.map((item, i) => (
                   <li key={i} className="flex justify-between">
-                    <span>{item.name} × {item.quantity}</span>
+                    <span>{item.name}{item.spice_level ? ` [${item.spice_level}]` : ''} × {item.quantity}</span>
                     <span className="text-gray-400">₱{(item.price * item.quantity).toFixed(2)}</span>
                   </li>
                 ))}

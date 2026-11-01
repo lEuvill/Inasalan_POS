@@ -11,6 +11,9 @@ class Product(models.Model):
     is_available = models.BooleanField(default=True)
     # e.g. [{"name": "Meal", "price": "120.00"}, {"name": "Solo", "price": "90.00"}]
     variations = models.JSONField(default=list, blank=True)
+    # Optional preparation modifier, independent of variations. When enabled the
+    # ordering UIs ask for Regular or Spicy after the item/variation is chosen.
+    has_spice_option = models.BooleanField(default=False)
     # Export mapping — used when generating sales export files
     output_name = models.CharField(max_length=255, blank=True)
     output_code = models.CharField(max_length=50, blank=True)

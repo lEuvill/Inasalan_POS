@@ -21,6 +21,10 @@ function orderToReceipt(order: Order): ReceiptData {
 }
 
 const WS_URL = (process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000') + '/ws/pos/'
+const EXTENDED_DAY_STORAGE_KEY = 'pos_extended_business_day_start'
+const BUSINESS_DAY_CUTOFF_STORAGE_KEY = 'pos_business_day_cutoff'
+const EXTENDED_DAY_ENDED_DATE_STORAGE_KEY = 'pos_extended_day_ended_date'
+const BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY = 'pos_business_day_cutoff_history'
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'bg-red-100 text-red-700',
@@ -230,9 +234,21 @@ export default function DashboardPage() {
   const [modeFilter, setModeFilter] = useState<OrderMode | 'ALL'>('ALL')
   const [unpaidCollapsed, setUnpaidCollapsed] = useState(false)
   const [showLongTerm, setShowLongTerm] = useState(false)
+  const [now, setNow] = useState(() => new Date())
+  const [extendedDayStart, setExtendedDayStart] = useState<string | null>(null)
+  const [businessDayCutoff, setBusinessDayCutoff] = useState<string | null>(null)
+  const [extendedDayEndedDate, setExtendedDayEndedDate] = useState<string | null>(null)
   useEffect(() => {
     const saved = localStorage.getItem('pos_dashboard_mode_filter')
     if (saved === 'ALL' || saved === 'REGULAR' || saved === 'EMPLOYEE' || saved === 'WASTE') setModeFilter(saved)
+    setExtendedDayStart(localStorage.getItem(EXTENDED_DAY_STORAGE_KEY))
+    setBusinessDayCutoff(localStorage.getItem(BUSINESS_DAY_CUTOFF_STORAGE_KEY))
+    setExtendedDayEndedDate(localStorage.getItem(EXTENDED_DAY_ENDED_DATE_STORAGE_KEY))
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const load = useCallback(async () => {
@@ -264,8 +280,52 @@ export default function DashboardPage() {
 
   const toLocalDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  const todayStr = toLocalDate(new Date())
-  const isToday = (o: Order) => toLocalDate(new Date(o.created_at)) === todayStr
+  const todayStr = toLocalDate(now)
+  const businessDayStart = extendedDayStart ?? todayStr
+  const isBusinessDayDate = (d: Date) => {
+    if (!extendedDayStart && businessDayCutoff) {
+      const cutoff = new Date(businessDayCutoff)
+      if (!Number.isNaN(cutoff.getTime()) && toLocalDate(cutoff) === todayStr) {
+        return d >= cutoff && toLocalDate(d) === todayStr
+      }
+    }
+    const date = toLocalDate(d)
+    return date >= businessDayStart && date <= todayStr
+  }
+  const isToday = (o: Order) => isBusinessDayDate(new Date(o.created_at))
+  const canExtendDay = !extendedDayStart && extendedDayEndedDate !== todayStr && now.getHours() < 4
+
+  const extendPreviousDay = () => {
+    const previousDay = new Date(now)
+    previousDay.setDate(previousDay.getDate() - 1)
+    const start = toLocalDate(previousDay)
+    localStorage.setItem(EXTENDED_DAY_STORAGE_KEY, start)
+    localStorage.removeItem(BUSINESS_DAY_CUTOFF_STORAGE_KEY)
+    setExtendedDayStart(start)
+    setBusinessDayCutoff(null)
+  }
+
+  const endExtendedDay = () => {
+    const endedAt = new Date()
+    const endedDate = toLocalDate(endedAt)
+    const cutoffIso = endedAt.toISOString()
+    try {
+      const saved = JSON.parse(localStorage.getItem(BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY) ?? '[]') as string[]
+      const history = [...new Set([...saved, cutoffIso])]
+        .filter(value => !Number.isNaN(new Date(value).getTime()))
+        .sort()
+      localStorage.setItem(BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY, JSON.stringify(history))
+    } catch {
+      localStorage.setItem(BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY, JSON.stringify([cutoffIso]))
+    }
+    localStorage.removeItem(EXTENDED_DAY_STORAGE_KEY)
+    localStorage.setItem(BUSINESS_DAY_CUTOFF_STORAGE_KEY, cutoffIso)
+    localStorage.setItem(EXTENDED_DAY_ENDED_DATE_STORAGE_KEY, endedDate)
+    setExtendedDayStart(null)
+    setBusinessDayCutoff(cutoffIso)
+    setExtendedDayEndedDate(endedDate)
+    setNow(endedAt)
+  }
 
   const displayed = modeFilter === 'ALL'
     ? activeOrders
@@ -284,7 +344,7 @@ export default function DashboardPage() {
   // reconcile with the Analytics page (which also defaults to REGULAR). The card
   // mode filter below only scopes the active-orders list, not these totals.
   const todayTxns = transactions.filter(t =>
-    toLocalDate(new Date(t.completed_at)) === todayStr &&
+    isBusinessDayDate(new Date(t.completed_at)) &&
     (t.order_detail?.order_mode ?? 'REGULAR') === 'REGULAR'
   )
   const todayRevenue = todayTxns.reduce((sum, t) => sum + parseFloat(t.total), 0)
@@ -389,7 +449,7 @@ export default function DashboardPage() {
         {order.items_json.map((item, i) => (
           <li key={i} className="flex justify-between">
             <span>
-              {item.name} × {item.quantity}
+              {item.name}{item.spice_level ? ` [${item.spice_level}]` : ''} × {item.quantity}
               {item.takeout && (
                 <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">TAKE OUT</span>
               )}
@@ -489,11 +549,41 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {extendedDayStart ? (
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-bold text-amber-800">Previous business day is extended</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Sales and active orders are being counted from {extendedDayStart}. This remains active until ended manually.
+            </p>
+          </div>
+          <button
+            onClick={endExtendedDay}
+            className="shrink-0 rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800 transition-colors"
+          >
+            End Extended Day
+          </button>
+        </div>
+      ) : canExtendDay ? (
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-bold text-blue-800">Still serving after midnight?</p>
+            <p className="text-xs text-blue-700 mt-0.5">Continue counting the previous day&apos;s sales until you end it manually.</p>
+          </div>
+          <button
+            onClick={extendPreviousDay}
+            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+          >
+            Extend Previous Day
+          </button>
+        </div>
+      ) : null}
+
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <StatCard label="Active Orders" value={displayed.length} color="text-orange-500" />
-        <StatCard label="Today's Sales" value={todayTxns.length} color="text-blue-500" />
-        <StatCard label="Today's Revenue" value={`₱${todayRevenue.toFixed(2)}`} color="text-green-600" />
+        <StatCard label={extendedDayStart ? "Extended Day Sales" : "Today's Sales"} value={todayTxns.length} color="text-blue-500" />
+        <StatCard label={extendedDayStart ? "Extended Day Revenue" : "Today's Revenue"} value={`₱${todayRevenue.toFixed(2)}`} color="text-green-600" />
       </div>
 
       {/* Active orders header + mode filter */}

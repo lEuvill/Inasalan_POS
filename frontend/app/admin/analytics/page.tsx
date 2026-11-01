@@ -24,8 +24,13 @@ type Preset = 'today' | 'yesterday' | '7d' | '30d' | 'this_month' | 'last_month'
 type TopBy = 'revenue' | 'qty'
 type CatBy = 'revenue' | 'qty' | 'orders'
 type Bucket = 'hour' | 'day' | 'week' | 'month'
+type DateBasis = 'calendar' | 'cutoff'
 
 const LS_ANALYTICS_MODES = 'pos_analytics_modes'
+const LS_ANALYTICS_DATE_BASIS = 'pos_analytics_date_basis'
+const EXTENDED_DAY_STORAGE_KEY = 'pos_extended_business_day_start'
+const BUSINESS_DAY_CUTOFF_STORAGE_KEY = 'pos_business_day_cutoff'
+const BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY = 'pos_business_day_cutoff_history'
 
 const PRESETS: { key: Preset; label: string }[] = [
   { key: 'today',      label: 'Today' },
@@ -82,6 +87,49 @@ function filterTx(txns: Transaction[], start: Date, end: Date) {
     const d = new Date(t.completed_at)
     return d >= start && d <= end
   })
+}
+
+function localDateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function previousDateKey(key: string) {
+  const d = new Date(`${key}T12:00:00`)
+  d.setDate(d.getDate() - 1)
+  return localDateKey(d)
+}
+
+function businessDateKey(d: Date, cutoffs: Date[], extendedDayStart: string | null) {
+  const dateKey = localDateKey(d)
+  const todayKey = localDateKey(new Date())
+  if (extendedDayStart && dateKey >= extendedDayStart && dateKey <= todayKey) return extendedDayStart
+  const cutoff = cutoffs.find(value => localDateKey(value) === dateKey)
+  return cutoff && d < cutoff ? previousDateKey(dateKey) : dateKey
+}
+
+function filterTxByBusinessDate(
+  txns: Transaction[], start: Date, end: Date, cutoffs: Date[], extendedDayStart: string | null,
+) {
+  const startKey = localDateKey(start)
+  const endKey = localDateKey(end)
+  return txns.filter(t => {
+    const key = businessDateKey(new Date(t.completed_at), cutoffs, extendedDayStart)
+    return key >= startKey && key <= endKey
+  })
+}
+
+function shiftDate(d: Date, days: number) {
+  const shifted = new Date(d)
+  shifted.setDate(shifted.getDate() + days)
+  return shifted
+}
+
+function previousBusinessRange(start: Date, end: Date) {
+  const first = startOfDay(start)
+  const last = startOfDay(end)
+  const days = Math.round((last.getTime() - first.getTime()) / 86400000) + 1
+  const prevEnd = shiftDate(first, -1)
+  return { start: shiftDate(prevEnd, -(days - 1)), end: prevEnd }
 }
 
 // ─── Analytics builders ───────────────────────────────────────────────────────
@@ -404,6 +452,9 @@ export default function AnalyticsPage() {
   const [topShowAll, setTopShowAll]     = useState(false)
   const [expandedTop, setExpandedTop]   = useState<Set<string>>(new Set())
   const [expandedPieces, setExpandedPieces] = useState<Set<string>>(new Set())
+  const [dateBasis, setDateBasis] = useState<DateBasis>('calendar')
+  const [extendedDayStart, setExtendedDayStart] = useState<string | null>(null)
+  const [cutoffs, setCutoffs] = useState<Date[]>([])
 
   function toggleTop(name: string) {
     setExpandedTop(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
@@ -417,7 +468,24 @@ export default function AnalyticsPage() {
       const saved = JSON.parse(localStorage.getItem(LS_ANALYTICS_MODES) ?? '["REGULAR"]') as OrderMode[]
       setIncludedModes(new Set(saved))
     } catch { /* keep default */ }
+    const savedBasis = localStorage.getItem(LS_ANALYTICS_DATE_BASIS)
+    if (savedBasis === 'calendar' || savedBasis === 'cutoff') setDateBasis(savedBasis)
+    setExtendedDayStart(localStorage.getItem(EXTENDED_DAY_STORAGE_KEY))
+    try {
+      const latest = localStorage.getItem(BUSINESS_DAY_CUTOFF_STORAGE_KEY)
+      const history = JSON.parse(localStorage.getItem(BUSINESS_DAY_CUTOFF_HISTORY_STORAGE_KEY) ?? '[]') as string[]
+      const values = [...history, ...(latest ? [latest] : [])]
+      setCutoffs([...new Set(values)]
+        .map(value => new Date(value))
+        .filter(value => !Number.isNaN(value.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime()))
+    } catch { /* ignore invalid browser data */ }
   }, [])
+
+  const changeDateBasis = (basis: DateBasis) => {
+    setDateBasis(basis)
+    localStorage.setItem(LS_ANALYTICS_DATE_BASIS, basis)
+  }
 
   const toggleMode = (mode: OrderMode) => {
     setIncludedModes(prev => {
@@ -445,13 +513,31 @@ export default function AnalyticsPage() {
     () => getPrevRange(start, end),
     [start, end],
   )
+  const effectiveRange = useMemo(() => {
+    if (dateBasis !== 'cutoff' || !extendedDayStart || (preset !== 'today' && preset !== 'yesterday')) {
+      return { start, end }
+    }
+    const activeDate = new Date(`${extendedDayStart}T12:00:00`)
+    const selectedDate = preset === 'today' ? activeDate : shiftDate(activeDate, -1)
+    return { start: startOfDay(selectedDate), end: new Date(startOfDay(selectedDate).getTime() + 86400000 - 1) }
+  }, [dateBasis, extendedDayStart, preset, start, end])
+  const previousCutoffRange = useMemo(
+    () => previousBusinessRange(effectiveRange.start, effectiveRange.end),
+    [effectiveRange],
+  )
 
   const modeFiltered = useMemo(() =>
     transactions.filter(t => includedModes.has(t.order_detail?.order_mode ?? 'REGULAR')),
   [transactions, includedModes])
 
-  const filtered     = useMemo(() => filterTx(modeFiltered, start, end),         [modeFiltered, start, end])
-  const prevFiltered = useMemo(() => filterTx(modeFiltered, prevStart, prevEnd),  [modeFiltered, prevStart, prevEnd])
+  const filtered = useMemo(() => dateBasis === 'cutoff'
+    ? filterTxByBusinessDate(modeFiltered, effectiveRange.start, effectiveRange.end, cutoffs, extendedDayStart)
+    : filterTx(modeFiltered, start, end),
+  [modeFiltered, start, end, effectiveRange, dateBasis, cutoffs, extendedDayStart])
+  const prevFiltered = useMemo(() => dateBasis === 'cutoff'
+    ? filterTxByBusinessDate(modeFiltered, previousCutoffRange.start, previousCutoffRange.end, cutoffs, extendedDayStart)
+    : filterTx(modeFiltered, prevStart, prevEnd),
+  [modeFiltered, prevStart, prevEnd, previousCutoffRange, dateBasis, cutoffs, extendedDayStart])
 
   const revenue     = useMemo(() => sumRevenue(filtered),     [filtered])
   const prevRevenue = useMemo(() => sumRevenue(prevFiltered), [prevFiltered])
@@ -461,7 +547,7 @@ export default function AnalyticsPage() {
   const productsById = useMemo(() => new Map(products.map(p => [p.id, p])), [products])
   const nameMap      = useMemo(() => new Map(products.map(p => [p.id, p.name])),                   [products])
 
-  const timeSeries    = useMemo(() => buildTimeSeries(filtered, start, end),                                    [filtered, start, end])
+  const timeSeries    = useMemo(() => buildTimeSeries(filtered, effectiveRange.start, effectiveRange.end),      [filtered, effectiveRange])
   const topProducts   = useMemo(() => buildTopProducts(filtered, topBy, productsById, nameMap, 10),             [filtered, topBy, productsById, nameMap])
   const allProducts   = useMemo(() => buildTopProducts(filtered, topBy, productsById, nameMap),                 [filtered, topBy, productsById, nameMap])
   const topItem       = useMemo(() => buildTopProducts(filtered, 'qty', productsById, nameMap, 1)[0],           [filtered, productsById, nameMap])
@@ -472,7 +558,7 @@ export default function AnalyticsPage() {
   const hourlyData   = useMemo(() => buildHourly(filtered),                      [filtered])
   const dowData      = useMemo(() => buildDayOfWeek(filtered),                   [filtered])
 
-  const dateLabel = `${start.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} — ${end.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  const dateLabel = `${effectiveRange.start.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} — ${effectiveRange.end.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`
 
   if (loading) {
     return (
@@ -494,6 +580,16 @@ export default function AnalyticsPage() {
       {/* ── Time frame selector ── */}
       <Card className="px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 mr-2" aria-label="Date basis">
+            <button type="button" onClick={() => changeDateBasis('calendar')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${dateBasis === 'calendar' ? 'bg-white text-gray-700 shadow-sm' : 'text-gray-400'}`}>
+              Per Date
+            </button>
+            <button type="button" onClick={() => changeDateBasis('cutoff')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${dateBasis === 'cutoff' ? 'bg-brand text-white shadow-sm' : 'text-gray-400'}`}>
+              Per Cutoff
+            </button>
+          </div>
           {PRESETS.map(p => (
             <button
               key={p.key}
@@ -524,6 +620,12 @@ export default function AnalyticsPage() {
             </div>
           )}
         </div>
+        {dateBasis === 'cutoff' && (
+          <p className="mt-2 text-[11px] text-gray-400">
+            Sales completed before an extended-day cutoff count toward the previous business date
+            {extendedDayStart ? `; the active business day currently starts on ${extendedDayStart}` : ''}.
+          </p>
+        )}
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">Data</span>
           {(['REGULAR','EMPLOYEE','WASTE','BULK'] as OrderMode[]).map(mode => (

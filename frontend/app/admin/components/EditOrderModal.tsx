@@ -31,6 +31,7 @@ export function EditOrderModal({
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
+  const [discountEdit, setDiscountEdit] = useState<{ idx: number; value: string } | null>(null)
 
   useEffect(() => {
     Promise.all([api.getOrder(orderId), api.getMenu()]).then(([ord, prods]) => {
@@ -76,6 +77,24 @@ export function EditOrderModal({
       prev.map((i, ii) => ii === idx ? { ...i, quantity: i.quantity + delta } : i)
           .filter(i => i.quantity > 0)
     )
+  }
+
+  const applyDiscount = (idx: number, pct: number) => {
+    setCart(prev => {
+      const item = prev[idx]
+      if (!item) return prev
+      const clamped = Math.min(100, Math.max(0, pct))
+      if (item.quantity <= 1 || clamped === 0) {
+        return prev.map((i, ii) => ii === idx ? { ...i, discount: clamped } : i)
+      }
+      const result = [...prev]
+      result.splice(idx, 1,
+        { ...item, quantity: item.quantity - 1 },
+        { ...item, quantity: 1, discount: clamped },
+      )
+      return result
+    })
+    setDiscountEdit(null)
   }
 
   const toggleTakeout = (idx: number) => {
@@ -231,19 +250,60 @@ export function EditOrderModal({
                 ) : cart.map((item, idx) => {
                   const parentProduct = products.find(p => p.id === item.productId)
                   const isVariation = parentProduct && parentProduct.variations && parentProduct.variations.length > 0
+                  const disc = item.discount ?? 0
+                  const effectivePrice = item.price * (1 - disc / 100)
+                  const isEditingDiscount = discountEdit?.idx === idx
                   return (
                     <div key={idx} className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{item.name}</p>
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs text-gray-400">₱{item.price.toFixed(2)}</p>
-                          {isVariation && (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {disc > 0 ? (
+                            <>
+                              <p className="text-xs text-gray-300 line-through">₱{item.price.toFixed(2)}</p>
+                              <p className="text-xs text-green-600 font-semibold">₱{effectivePrice.toFixed(2)}</p>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gray-400">₱{item.price.toFixed(2)}</p>
+                          )}
+                          {isEditingDiscount ? (
+                            <form
+                              className="flex items-center gap-1"
+                              onSubmit={e => {
+                                e.preventDefault()
+                                applyDiscount(idx, parseFloat(discountEdit.value) || 0)
+                              }}
+                            >
+                              <input
+                                autoFocus
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={discountEdit.value}
+                                onChange={e => setDiscountEdit({ idx, value: e.target.value })}
+                                onBlur={() => applyDiscount(idx, parseFloat(discountEdit.value) || 0)}
+                                className="w-12 border border-brand rounded px-1 py-0.5 text-xs text-center focus:outline-none"
+                                placeholder="0"
+                              />
+                              <span className="text-xs text-gray-400">%</span>
+                            </form>
+                          ) : (
+                            <button
+                              onClick={() => setDiscountEdit({ idx, value: disc > 0 ? String(disc) : '' })}
+                              className={`text-xs font-semibold hover:underline leading-none ${
+                                disc > 0 ? 'text-green-600' : 'text-gray-300 hover:text-brand'
+                              }`}
+                            >
+                              {disc > 0 ? `${disc}% off` : '%'}
+                            </button>
+                          )}
+                          {isVariation && !isEditingDiscount && (
                             <button
                               onClick={() => setPendingEdit({ idx, item, product: parentProduct! })}
                               className="text-xs text-brand font-semibold hover:underline leading-none"
                             >change</button>
                           )}
-                          {orderType === 'DINE_IN' && (
+                          {orderType === 'DINE_IN' && !isEditingDiscount && (
                             <button
                               onClick={() => toggleTakeout(idx)}
                               title={item.takeout ? 'Tap to serve as dine-in' : 'Tap to pack as take-out'}
@@ -268,7 +328,7 @@ export function EditOrderModal({
                         >+</button>
                       </div>
                       <span className="text-sm font-semibold text-gray-700 w-14 text-right shrink-0">
-                        ₱{(item.price * item.quantity).toFixed(2)}
+                        ₱{(effectivePrice * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   )

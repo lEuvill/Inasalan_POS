@@ -6,6 +6,8 @@ backend/**/__pycache__/
 backend/**/*.pyc
 backend/*.pyc
 backend/db.sqlite3
+backend/credentials.json
+backend/token.json
 
 # Next.js
 frontend/node_modules/

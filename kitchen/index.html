@@ -273,6 +273,7 @@
           itemsHtml +=
             '<li class="item-row">' +
               '<span class="item-name">' + items[k].name +
+                (items[k].spice_level ? '<strong> [' + items[k].spice_level + ']</strong>' : '') +
                 (items[k].takeout ? '<span class="takeout-tag">TAKE OUT</span>' : '') +
               '</span>' +
               '<span class="item-qty">&times;' + items[k].quantity + '</span>' +

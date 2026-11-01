@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { api, Product, Order, OrderItem, OrderStatus, ProductVariation } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
+import { SpiceLevel, SpicePicker } from '@/app/components/SpicePicker'
 
 const WS_URL = (process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8000') + '/ws/pos/'
 
@@ -36,6 +37,7 @@ function MenuPageInner() {
   const [showCart, setShowCart] = useState(false)
   const [placing, setPlacing] = useState(false)
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
+  const [pendingSpice, setPendingSpice] = useState<{ productId: number; name: string; price: number } | null>(null)
   const [stockWarn, setStockWarn] = useState<string | null>(null)
   const stockWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -66,7 +68,7 @@ function MenuPageInner() {
     stockWarnTimer.current = setTimeout(() => setStockWarn(null), 3000)
   }
 
-  const pushToCart = (productId: number, name: string, price: number) => {
+  const pushToCart = (productId: number, name: string, price: number, spice_level?: SpiceLevel) => {
     const product = products.find(p => p.id === productId)
     if (product) {
       let stock: number | null = null
@@ -85,23 +87,25 @@ function MenuPageInner() {
       }
     }
     setCart(prev => {
-      const existing = prev.find(i => i.name === name)
-      if (existing) return prev.map(i => i.name === name ? { ...i, quantity: i.quantity + 1 } : i)
-      return [...prev, { key: Date.now(), productId, name, price, quantity: 1 }]
+      const existing = prev.find(i => i.name === name && i.spice_level === spice_level)
+      if (existing) return prev.map(i => i.key === existing.key ? { ...i, quantity: i.quantity + 1 } : i)
+      return [...prev, { key: Date.now(), productId, name, price, quantity: 1, ...(spice_level ? { spice_level } : {}) }]
     })
   }
 
   const addToCart = (product: Product) => {
     if (product.variations && product.variations.length > 0) {
       setPendingProduct(product)
+    } else if (product.has_spice_option) {
+      setPendingSpice({ productId: product.id, name: product.name, price: parseFloat(product.price) })
     } else {
       pushToCart(product.id, product.name, parseFloat(product.price))
     }
   }
 
-  const updateQty = (name: string, delta: number) => {
+  const updateQty = (key: number, delta: number) => {
     setCart(prev =>
-      prev.map(i => i.name === name ? { ...i, quantity: i.quantity + delta } : i)
+      prev.map(i => i.key === key ? { ...i, quantity: i.quantity + delta } : i)
           .filter(i => i.quantity > 0)
     )
   }
@@ -110,7 +114,7 @@ function MenuPageInner() {
     cart.filter(i => i.productId === productId).reduce((s, i) => s + i.quantity, 0)
 
   const variationCartQty = (productName: string, variationName: string) =>
-    cart.find(i => i.name === `${productName} - ${variationName}`)?.quantity ?? 0
+    cart.filter(i => i.name === `${productName} - ${variationName}`).reduce((sum, i) => sum + i.quantity, 0)
 
   const stockFor = (item: CartItem): number | null => {
     const product = products.find(p => p.id === item.productId)
@@ -225,7 +229,7 @@ function MenuPageInner() {
           {visible.map(product => {
             const hasVariations = product.variations && product.variations.length > 0
             const inCart = cartCountFor(product.id)
-            const singleEntry = !hasVariations ? cart.find(i => i.productId === product.id) : null
+            const singleEntry = !hasVariations && !product.has_spice_option ? cart.find(i => i.productId === product.id) : null
 
             const outOfStock = hasVariations
               ? product.variations.every(v =>
@@ -267,12 +271,12 @@ function MenuPageInner() {
                   {!hasVariations && singleEntry ? (
                     <div className="flex items-center gap-2 mt-2">
                       <button
-                        onClick={() => updateQty(singleEntry.name, -1)}
+                        onClick={() => updateQty(singleEntry.key, -1)}
                         className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 flex items-center justify-center"
                       >−</button>
                       <span className="text-sm font-semibold text-gray-800 w-4 text-center">{singleEntry.quantity}</span>
                       <button
-                        onClick={() => !atLimit && updateQty(singleEntry.name, 1)}
+                        onClick={() => !atLimit && updateQty(singleEntry.key, 1)}
                         className={`w-7 h-7 rounded-full text-white font-bold flex items-center justify-center ${atLimit ? 'bg-gray-300 cursor-not-allowed' : 'bg-brand hover:bg-brand-dark'}`}
                       >+</button>
                     </div>
@@ -319,15 +323,16 @@ function MenuPageInner() {
                   <div key={item.key} className="flex items-center gap-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                      {item.spice_level && <p className={`text-[11px] font-bold ${item.spice_level === 'SPICY' ? 'text-red-500' : 'text-gray-400'}`}>{item.spice_level === 'SPICY' ? '🌶️ SPICY' : 'REGULAR'}</p>}
                       <p className="text-xs text-gray-400">₱{item.price.toFixed(2)} each</p>
                       {stock !== null && item.quantity > stock && (
                         <p className="text-xs text-red-400 font-semibold">Only {stock} available</p>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => updateQty(item.name, -1)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200">−</button>
+                      <button onClick={() => updateQty(item.key, -1)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold flex items-center justify-center hover:bg-gray-200">−</button>
                       <span className="text-sm font-semibold w-4 text-center">{item.quantity}</span>
-                      <button onClick={() => updateQty(item.name, 1)} className="w-6 h-6 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
+                      <button onClick={() => updateQty(item.key, 1)} className="w-6 h-6 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center hover:bg-brand-dark">+</button>
                     </div>
                     <span className="text-sm font-semibold text-gray-700 w-16 text-right">₱{(item.price * item.quantity).toFixed(2)}</span>
                   </div>
@@ -358,10 +363,19 @@ function MenuPageInner() {
         variations={pendingProduct.variations}
         getCartQty={(varName) => variationCartQty(pendingProduct.name, varName)}
         onSelect={(v: ProductVariation) => {
-          pushToCart(pendingProduct.id, `${pendingProduct.name} - ${v.name}`, parseFloat(v.price))
+          const selection = { productId: pendingProduct.id, name: `${pendingProduct.name} - ${v.name}`, price: parseFloat(v.price) }
+          if (pendingProduct.has_spice_option) setPendingSpice(selection)
+          else pushToCart(selection.productId, selection.name, selection.price)
           setPendingProduct(null)
         }}
         onCancel={() => setPendingProduct(null)}
+      />
+    )}
+    {pendingSpice && (
+      <SpicePicker
+        productName={pendingSpice.name}
+        onSelect={level => { pushToCart(pendingSpice.productId, pendingSpice.name, pendingSpice.price, level); setPendingSpice(null) }}
+        onCancel={() => setPendingSpice(null)}
       />
     )}
     </>

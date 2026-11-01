@@ -6,8 +6,8 @@ import { api, Product, ProductVariation } from '@/app/lib/api'
 type ExportProduct = Omit<Product, 'id' | 'android_id' | 'stock'>
 
 function exportMenu(products: Product[]) {
-  const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, output_name, pieces_per_serving }) => ({
-    name, price, category, image_path, is_available, variations, output_name, pieces_per_serving,
+  const data: ExportProduct[] = products.map(({ name, price, category, image_path, is_available, variations, has_spice_option, output_name, pieces_per_serving }) => ({
+    name, price, category, image_path, is_available, variations, has_spice_option, output_name, pieces_per_serving,
   }))
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -96,6 +96,7 @@ const BLANK: Omit<Product, 'id' | 'android_id'> = {
   image_path: '',
   is_available: true,
   variations: [],
+  has_spice_option: false,
   output_name: '',
   stock: null,
   pieces_per_serving: 1,
@@ -404,7 +405,7 @@ export default function MenuPage() {
 
   const openCreate = () => { setForm(BLANK); setEditId(null); setShowForm(true) }
   const openEdit = (p: Product) => {
-    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], output_name: p.output_name ?? '', stock: p.stock ?? null, pieces_per_serving: p.pieces_per_serving ?? 1 })
+    setForm({ name: p.name, price: p.price, category: p.category, image_path: p.image_path, is_available: p.is_available, variations: p.variations ?? [], has_spice_option: p.has_spice_option ?? false, output_name: p.output_name ?? '', stock: p.stock ?? null, pieces_per_serving: p.pieces_per_serving ?? 1 })
     setEditId(p.id)
     setShowForm(true)
   }
@@ -538,6 +539,14 @@ export default function MenuPage() {
                 variations={form.variations}
                 onChange={v => setForm(f => ({ ...f, variations: v }))}
               />
+
+              <div className="border border-red-100 bg-red-50/50 rounded-xl p-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
+                  <input type="checkbox" checked={form.has_spice_option} onChange={e => setForm(f => ({ ...f, has_spice_option: e.target.checked }))} className="accent-red-500" />
+                  Offer Regular / Spicy
+                </label>
+                <p className="text-[11px] text-gray-400 mt-1 ml-6">Applies to every variation without duplicating them.</p>
+              </div>
 
               {form.variations.length > 0 && (
                 <button

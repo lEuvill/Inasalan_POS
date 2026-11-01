@@ -4,9 +4,10 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { api, Product, OrderItem, OrderType, PaymentMethod, ProductVariation, Table, OrderMode } from '@/app/lib/api'
 import { useWebSocket, WsMessage } from '@/app/lib/websocket'
 import { VariationPicker } from '@/app/components/VariationPicker'
+import { SpiceLevel, SpicePicker } from '@/app/components/SpicePicker'
 import { printReceipt, printCashierReceipt, printKitchenOrder, printGrillerOrder, ReceiptData } from '@/app/lib/printReceipt'
 
-type OrderStep = 'cart' | 'payment' | 'table'
+type OrderStep = 'cart' | 'customer' | 'payment' | 'table'
 
 type LastPlaced = { slip: string; total: number; table: string }
 
@@ -16,6 +17,7 @@ export default function TakeOrderPage() {
   const [activeCategory, setActiveCategory] = useState('')
   const [placing, setPlacing]         = useState(false)
   const [pendingEdit, setPendingEdit] = useState<{ idx: number; item: OrderItem; product: Product } | null>(null)
+  const [pendingSpice, setPendingSpice] = useState<{ productId: number; name: string; price: number } | null>(null)
   const [discountEdit, setDiscountEdit] = useState<{ idx: number; value: string } | null>(null)
   const [slipNumber, setSlipNumber]   = useState('')
   const [ownerName, setOwnerName]     = useState('')
@@ -127,7 +129,7 @@ export default function TakeOrderPage() {
     stockWarnTimer.current = setTimeout(() => setStockWarn(null), 3000)
   }
 
-  const pushToCart = (productId: number, name: string, price: number) => {
+  const pushToCart = (productId: number, name: string, price: number, spice_level?: SpiceLevel) => {
     const product = products.find(p => p.id === productId)
     if (product) {
       let stock: number | null = null
@@ -144,9 +146,9 @@ export default function TakeOrderPage() {
       }
     }
     setCart(prev => {
-      const existing = prev.find(i => i.name === name && !(i.discount ?? 0) && !i.takeout)
-      if (existing) return prev.map(i => (i.name === name && !(i.discount ?? 0) && !i.takeout) ? { ...i, quantity: i.quantity + 1 } : i)
-      return [...prev, { productId, name, price, quantity: 1, discount: 0 }]
+      const existing = prev.find(i => i.name === name && i.spice_level === spice_level && !(i.discount ?? 0) && !i.takeout)
+      if (existing) return prev.map(i => i === existing ? { ...i, quantity: i.quantity + 1 } : i)
+      return [...prev, { productId, name, price, quantity: 1, discount: 0, ...(spice_level ? { spice_level } : {}) }]
     })
   }
 
@@ -263,6 +265,10 @@ export default function TakeOrderPage() {
 
   const place = async (tbl: string) => {
     if (cart.length === 0) return
+    if (orderMode === 'REGULAR' && !ownerName.trim()) {
+      setStep('customer')
+      return
+    }
     setPlacing(true)
     try {
       const slip = slipNumber.trim()
@@ -417,16 +423,6 @@ export default function TakeOrderPage() {
               className="w-36 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-800 focus:outline-none focus:border-brand tracking-wide"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-gray-400 shrink-0 uppercase tracking-wide">Name</label>
-            <input
-              type="text"
-              value={ownerName}
-              onChange={e => setOwnerName(e.target.value)}
-              placeholder="Customer name"
-              className="w-44 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-brand"
-            />
-          </div>
         </div>
 
         {/* Row 2: order type + payment method */}
@@ -530,8 +526,8 @@ export default function TakeOrderPage() {
                           <div className="flex flex-wrap gap-1">
                             {p.variations.map((v, vi) => {
                               const varName = `${p.name} - ${v.name}`
-                              const inCart = cart.find(c => c.name === varName)
-                              const varQty = inCart?.quantity ?? 0
+                              const inCart = cart.some(c => c.name === varName)
+                              const varQty = cart.filter(c => c.name === varName).reduce((sum, item) => sum + item.quantity, 0)
                               // Per-variation stock takes priority; fall back to shared product-level pool
                               const varRemaining = v.stock != null
                                 ? Math.max(0, v.stock - varQty)
@@ -541,7 +537,7 @@ export default function TakeOrderPage() {
                               const outOfStock = varRemaining !== null && varRemaining === 0
                               return (
                                 <button key={vi}
-                                  onClick={() => pushToCart(p.id, varName, parseFloat(v.price))}
+                                  onClick={() => p.has_spice_option ? setPendingSpice({ productId: p.id, name: varName, price: parseFloat(v.price) }) : pushToCart(p.id, varName, parseFloat(v.price))}
                                   disabled={outOfStock}
                                   className={`flex-1 rounded-lg py-1.5 px-1 text-center transition-all
                                     ${outOfStock ? 'bg-gray-100 cursor-not-allowed opacity-50' :
@@ -592,7 +588,7 @@ export default function TakeOrderPage() {
                           </p>
                         )}
                         <button type="button"
-                          onClick={() => pushToCart(p.id, p.name, parseFloat(p.price))}
+                          onClick={() => p.has_spice_option ? setPendingSpice({ productId: p.id, name: p.name, price: parseFloat(p.price) }) : pushToCart(p.id, p.name, parseFloat(p.price))}
                           disabled={isOutOfStock}
                           className={`w-full rounded-lg py-1.5 text-center text-xs font-semibold transition-all
                             ${isOutOfStock ? 'bg-gray-100 text-gray-300 cursor-not-allowed' :
@@ -638,6 +634,7 @@ export default function TakeOrderPage() {
                 <div key={idx} className="flex items-start gap-2 py-1.5 border-b border-gray-50 last:border-0">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate leading-tight">{item.name}</p>
+                    {item.spice_level && <p className={`text-[10px] font-bold ${item.spice_level === 'SPICY' ? 'text-red-500' : 'text-gray-400'}`}>{item.spice_level === 'SPICY' ? '🌶️ SPICY' : 'REGULAR'}</p>}
                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                       {isDfItem ? (
                         <>
@@ -767,7 +764,7 @@ export default function TakeOrderPage() {
             <button
               onClick={() => {
                 if (cart.length === 0) return
-                if (orderMode !== 'REGULAR') { setShowRecordPreview(true) } else { setStep('payment') }
+                if (orderMode !== 'REGULAR') { setShowRecordPreview(true) } else { setStep('customer') }
               }}
               disabled={cart.length === 0}
               className={`w-full text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-40 ${
@@ -878,6 +875,14 @@ export default function TakeOrderPage() {
     )}
 
     {/* ── Variation picker ── */}
+    {pendingSpice && (
+      <SpicePicker
+        productName={pendingSpice.name}
+        onSelect={level => { pushToCart(pendingSpice.productId, pendingSpice.name, pendingSpice.price, level); setPendingSpice(null) }}
+        onCancel={() => setPendingSpice(null)}
+      />
+    )}
+
     {pendingEdit && (
       <VariationPicker
         productName={`Change: ${pendingEdit.product.name}`}
@@ -893,13 +898,55 @@ export default function TakeOrderPage() {
       />
     )}
 
+    {/* ── Required customer name step ── */}
+    {step === 'customer' && (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-base font-bold text-gray-800">Customer Name</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Required before placing the order</p>
+            </div>
+            <button onClick={() => setStep('cart')} className="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-xl">✕</button>
+          </div>
+          <div className="px-6 py-6">
+            <label htmlFor="customer-name" className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="customer-name"
+              type="text"
+              value={ownerName}
+              onChange={e => setOwnerName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && ownerName.trim()) setStep('payment')
+              }}
+              placeholder="Enter customer name"
+              maxLength={100}
+              autoFocus
+              required
+              className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-brand"
+            />
+          </div>
+          <div className="px-6 pb-6 flex gap-3">
+            <button onClick={() => setStep('cart')}
+              className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50">Back</button>
+            <button onClick={() => setStep('payment')} disabled={!ownerName.trim()}
+              className="flex-1 bg-brand text-white font-bold py-3 rounded-xl text-sm hover:bg-brand-dark disabled:opacity-40 transition-colors">
+              Continue
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* ── Payment step ── */}
     {step === 'payment' && (
       <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="text-base font-bold text-gray-800">Payment</h2>
-            <button onClick={() => setStep('cart')} className="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-xl">✕</button>
+            <button onClick={() => setStep('customer')} className="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-xl">✕</button>
           </div>
 
           <div className="px-6 py-6 text-center border-b border-gray-50 bg-gray-50">
@@ -976,7 +1023,7 @@ export default function TakeOrderPage() {
           )}
 
           <div className="px-6 pb-6 flex gap-3">
-            <button onClick={() => setStep('cart')}
+            <button onClick={() => setStep('customer')}
               className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-3 text-sm font-semibold hover:bg-gray-50">Back</button>
             <button onClick={() => setStep('table')}
               disabled={!isUnpaid && (

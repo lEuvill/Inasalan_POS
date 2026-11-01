@@ -17,6 +17,7 @@ export type Product = {
   image_path: string
   is_available: boolean
   variations: ProductVariation[]
+  has_spice_option: boolean
   output_name: string
   stock: number | null
   pieces_per_serving: number
@@ -30,6 +31,7 @@ export type OrderItem = {
   discount?: number
   output_name?: string
   takeout?: boolean   // item leaves as take-out within a dine-in order
+  spice_level?: 'REGULAR' | 'SPICY'
 }
 
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'COMPLETED' | 'VOIDED'

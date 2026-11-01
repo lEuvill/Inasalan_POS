@@ -104,7 +104,9 @@ if not exist venv (
 )
 
 echo  Installing Python dependencies...
-call venv\Scripts\pip.exe install -r requirements.txt --quiet
+:: Invoke pip as a Python module. Some managed Windows installations block
+:: generated launcher executables such as pip.exe through Device Guard.
+call venv\Scripts\python.exe -m pip install -r requirements.txt --quiet
 if errorlevel 1 (
     echo  ERROR: Failed to install Python dependencies.
     pause
@@ -135,8 +137,11 @@ echo [4/5] Installing frontend dependencies...
 cd frontend
 
 echo  Detecting local network IP...
-for /f %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp | Select-Object -First 1).IPAddress"') do set LOCAL_IP=%%i
-if "%LOCAL_IP%"=="" set LOCAL_IP=localhost
+:: Clear any inherited value first. If the machine is offline, the command below
+:: may produce no output and FOR would otherwise leave a stale LOCAL_IP untouched.
+set "LOCAL_IP="
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$ip = Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred -ErrorAction SilentlyContinue ^| Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } ^| Select-Object -First 1 -ExpandProperty IPAddress; if ([string]::IsNullOrWhiteSpace($ip)) { 'localhost' } else { $ip.Trim() }"`) do set "LOCAL_IP=%%i"
+if not defined LOCAL_IP set "LOCAL_IP=localhost"
 echo  Using IP: %LOCAL_IP%
 
 echo  Writing .env.local for network access...

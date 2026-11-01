@@ -71,6 +71,10 @@ const ORDER_TYPE_LABEL: Record<string, string> = {
 // content. The queue ensures only one dialog is open at a time.
 const printQueue: Array<() => void> = []
 let printBusy = false
+// XP-58 USB drivers can still be processing the previous browser-rendered
+// ticket after the print dialog closes. Keep enough time between tickets to
+// prevent their small driver/printer buffer from being overrun.
+const PRINT_GAP_MS = 2_000
 
 function enqueuePrint(job: () => void) {
   printQueue.push(job)
@@ -78,6 +82,7 @@ function enqueuePrint(job: () => void) {
 }
 
 function startNextPrint() {
+  if (printBusy) return
   if (printQueue.length === 0) { printBusy = false; return }
   printBusy = true
   printQueue.shift()!()
@@ -99,22 +104,47 @@ function runPrintJob(id: string, html: string, buildCss: (hMm: number) => string
   document.head.appendChild(styleEl)
   document.body.appendChild(wrapEl)
 
-  const hMm = Math.max(Math.ceil(wrapEl.scrollHeight * 0.2646) + 6, 100)
+  // CSS pixels are 96 dpi, so 1 px is 0.2646 mm.  Keep a small margin for
+  // the cutter, but do not force every short ticket to a 100 mm page.
+  // Keep the page taller than the 58 mm paper width.  Short tickets (especially
+  // griller tickets) previously became 58 mm × 25 mm pages, which drivers
+  // correctly interpreted as landscape.
+  const hMm = Math.max(Math.ceil(wrapEl.scrollHeight * 0.2646) + 6, 60)
   styleEl.textContent = buildCss(hMm)
 
+  let settled = false
+  let fallback: ReturnType<typeof setTimeout> | undefined
+  let printTimer: ReturnType<typeof setTimeout> | undefined
+
   const finish = () => {
-    clearTimeout(fallback)
+    // A timed-out job leaves no stale afterprint handler behind. Without this
+    // guard, a later print can complete this job a second time and start two
+    // browser print jobs concurrently.
+    if (settled) return
+    settled = true
+    if (fallback) clearTimeout(fallback)
+    if (printTimer) clearTimeout(printTimer)
+    window.removeEventListener('afterprint', finish)
     document.getElementById(id)?.remove()
     document.getElementById(`${id}_style`)?.remove()
-    startNextPrint()
+    printBusy = false
+    // Give Windows time to accept the completed spool job before opening the
+    // next browser print dialog.
+    setTimeout(startNextPrint, PRINT_GAP_MS)
   }
 
   // Fallback in case afterprint never fires (printer error, no printer installed, etc.)
-  const fallback = setTimeout(finish, 60_000)
+  fallback = setTimeout(finish, 60_000)
 
   window.addEventListener('afterprint', finish, { once: true })
 
-  setTimeout(() => window.print(), 50)
+  printTimer = setTimeout(() => {
+    try {
+      window.print()
+    } catch {
+      finish()
+    }
+  }, 50)
 }
 
 // ── Extra Rice Voucher ────────────────────────────────────────────────────────
@@ -173,17 +203,7 @@ export function printReceipt(data: ReceiptData) {
   const dateStr = data.date.toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' })
   const timeStr = data.date.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
 
-  const itemRows = data.items.map(item => {
-    const disc = item.discount ?? 0
-    const effectivePrice = item.price * (1 - disc / 100)
-    const lineTotal = effectivePrice * item.quantity
-    const discSaving = item.price * (disc / 100) * item.quantity
-    const discRow = disc > 0
-      ? `<div class="pr-row pr-disc-row"><span>(${disc}% off)</span><span>-&#8369;${discSaving.toFixed(2)}</span></div>`
-      : ''
-    const toMark = item.takeout ? ' [TAKE OUT]' : ''
-    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}${toMark}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
-  }).join('')
+  const itemRows = buildReceiptItemRows(data.items)
 
   const metaSlip  = data.slipNumber    ? `<div class="pr-row pr-meta"><span>Slip #</span><span>${escHtml(data.slipNumber)}</span></div>` : ''
   const metaName  = data.ownerName     ? `<div class="pr-row pr-meta"><span>Name</span><span>${escHtml(data.ownerName)}</span></div>` : ''
@@ -231,6 +251,7 @@ export function printReceipt(data: ReceiptData) {
     `${W} .pr-store-sub{font-size:${fsSm}mm;margin-bottom:0.8mm}`,
     `${W} .pr-meta{font-size:${fsSm}mm;margin:0.5mm 0}`,
     `${W} .pr-item-row{font-size:${fs}mm;margin:0.8mm 0}`,
+    `${W} .pr-section-heading{text-align:center;font-size:${fsSm}mm;font-weight:bold;letter-spacing:0.4mm;border-top:0.3mm dashed #000;border-bottom:0.3mm dashed #000;margin:1.5mm 0 0.8mm;padding:0.7mm 0}`,
     `${W} .pr-disc-row{display:flex;justify-content:space-between;font-size:${fsDisc}mm;padding-left:2mm;margin-bottom:0.5mm}`,
     `${W} .pr-totals-row{font-size:${fs}mm;margin:0.6mm 0}`,
     `${W} .pr-grand-row{font-size:${(fs * 1.14).toFixed(2)}mm;margin:0.8mm 0}`,
@@ -255,7 +276,7 @@ export function printKitchenOrder(data: ReceiptData) {
     data.orderType   ? `<div class="kp-type">${ORDER_TYPE_LABEL[data.orderType] ?? data.orderType}</div>` : '',
     data.tableNumber ? `<div class="kp-table">${escHtml(data.tableNumber)}</div>` : '',
     `<div class="kp-divider"></div>`,
-    data.items.map(i => `<div class="kp-item">${i.quantity}x ${escHtml(i.name)}${i.takeout ? ' [TAKE OUT]' : ''}</div>`).join(''),
+    buildSimpleItemRows(data.items, 'kp'),
   ].join('')
 
   const buildCss = (hMm: number) => [
@@ -270,6 +291,7 @@ export function printKitchenOrder(data: ReceiptData) {
     `${W} .kp-table{font-size:${(fs * 1.5).toFixed(2)}mm;font-weight:bold;text-align:center;margin:2mm 0}`,
     `${W} .kp-divider{border-top:0.4mm solid #000;margin:2mm 0}`,
     `${W} .kp-item{font-size:${(fs * 1.14).toFixed(2)}mm;margin:1.5mm 0}`,
+    `${W} .kp-section-heading{text-align:center;font-size:${(fs * 1.14).toFixed(2)}mm;border-top:0.4mm solid #000;border-bottom:0.4mm solid #000;margin:2mm 0 1.5mm;padding:1mm 0}`,
   ].join('')
 
   enqueuePrint(() => runPrintJob('_kp', html, buildCss, s.bodyWidth))
@@ -300,7 +322,7 @@ export async function printGrillerOrder(data: ReceiptData) {
     data.slipNumber  ? `<div class="gr-slip">Slip#: ${escHtml(data.slipNumber)}</div>` : '',
     data.tableNumber ? `<div class="gr-table">${escHtml(data.tableNumber)}</div>` : '',
     `<div class="gr-divider"></div>`,
-    items.map(i => `<div class="gr-item">${i.quantity}x ${escHtml(i.name)}</div>`).join(''),
+    buildSimpleItemRows(items, 'gr'),
   ].join('')
 
   const buildCss = (hMm: number) => [
@@ -314,6 +336,7 @@ export async function printGrillerOrder(data: ReceiptData) {
     `${W} .gr-table{font-size:${(fs * 1.5).toFixed(2)}mm;font-weight:bold;text-align:center;margin:2mm 0}`,
     `${W} .gr-divider{border-top:0.4mm solid #000;margin:2mm 0}`,
     `${W} .gr-item{font-size:${(fs * 1.14).toFixed(2)}mm;margin:1.5mm 0}`,
+    `${W} .gr-section-heading{text-align:center;font-size:${(fs * 1.14).toFixed(2)}mm;border-top:0.4mm solid #000;border-bottom:0.4mm solid #000;margin:2mm 0 1.5mm;padding:1mm 0}`,
   ].join('')
 
   enqueuePrint(() => runPrintJob('_gr', html, buildCss, s.bodyWidth))
@@ -335,17 +358,7 @@ export function printCashierReceipt(data: ReceiptData) {
   const dateStr = data.date.toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' })
   const timeStr = data.date.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
 
-  const itemRows = data.items.map(item => {
-    const disc = item.discount ?? 0
-    const effectivePrice = item.price * (1 - disc / 100)
-    const lineTotal = effectivePrice * item.quantity
-    const discSaving = item.price * (disc / 100) * item.quantity
-    const discRow = disc > 0
-      ? `<div class="pr-row pr-disc-row"><span>(${disc}% off)</span><span>-&#8369;${discSaving.toFixed(2)}</span></div>`
-      : ''
-    const toMark = item.takeout ? ' [TAKE OUT]' : ''
-    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name)}${toMark}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
-  }).join('')
+  const itemRows = buildReceiptItemRows(data.items)
 
   const metaSlip  = data.slipNumber    ? `<div class="pr-row pr-meta"><span>Slip #</span><span>${escHtml(data.slipNumber)}</span></div>` : ''
   const metaName  = data.ownerName     ? `<div class="pr-row pr-meta"><span>Name</span><span>${escHtml(data.ownerName)}</span></div>` : ''
@@ -411,6 +424,7 @@ export function printCashierReceipt(data: ReceiptData) {
     `${W} .pr-store-sub{font-size:${fsSm}mm;margin-bottom:0.8mm}`,
     `${W} .pr-meta{font-size:${fsSm}mm;margin:0.5mm 0}`,
     `${W} .pr-item-row{font-size:${fs}mm;margin:0.8mm 0}`,
+    `${W} .pr-section-heading{text-align:center;font-size:${fsSm}mm;font-weight:bold;letter-spacing:0.4mm;border-top:0.3mm dashed #000;border-bottom:0.3mm dashed #000;margin:1.5mm 0 0.8mm;padding:0.7mm 0}`,
     `${W} .pr-disc-row{display:flex;justify-content:space-between;font-size:${fsDisc}mm;padding-left:2mm;margin-bottom:0.5mm}`,
     `${W} .pr-totals-row{font-size:${fs}mm;margin:0.6mm 0}`,
     `${W} .pr-grand-row{font-size:${(fs * 1.14).toFixed(2)}mm;margin:0.8mm 0}`,
@@ -709,6 +723,47 @@ export function printSnapshotSheet(
   ].join('')
 
   enqueuePrint(() => runPrintJob('_snap', html, buildCss, TOTAL_W))
+}
+
+function splitItemsByService(items: OrderItem[]) {
+  return {
+    dineIn: items.filter(item => !item.takeout),
+    takeOut: items.filter(item => item.takeout),
+  }
+}
+
+function buildReceiptItemRows(items: OrderItem[]): string {
+  const { dineIn, takeOut } = splitItemsByService(items)
+  const rows = (group: OrderItem[]) => group.map(item => {
+    const disc = item.discount ?? 0
+    const effectivePrice = item.price * (1 - disc / 100)
+    const lineTotal = effectivePrice * item.quantity
+    const discSaving = item.price * (disc / 100) * item.quantity
+    const discRow = disc > 0
+      ? `<div class="pr-row pr-disc-row"><span>(${disc}% off)</span><span>-&#8369;${discSaving.toFixed(2)}</span></div>`
+      : ''
+    const spice = item.spice_level ? ` [${item.spice_level === 'SPICY' ? 'SPICY' : 'REGULAR'}]` : ''
+    return `<div class="pr-row pr-item-row"><span class="pr-name">${item.quantity}x ${escHtml(item.name + spice)}</span><span class="pr-amount">&#8369;${lineTotal.toFixed(2)}</span></div>${discRow}`
+  }).join('')
+
+  return [
+    rows(dineIn),
+    takeOut.length > 0 ? '<div class="pr-section-heading">TAKE OUT</div>' : '',
+    rows(takeOut),
+  ].join('')
+}
+
+function buildSimpleItemRows(items: OrderItem[], prefix: 'kp' | 'gr'): string {
+  const { dineIn, takeOut } = splitItemsByService(items)
+  const rows = (group: OrderItem[]) => group
+    .map(item => `<div class="${prefix}-item">${item.quantity}x ${escHtml(item.name + (item.spice_level ? ` [${item.spice_level}]` : ''))}</div>`)
+    .join('')
+
+  return [
+    rows(dineIn),
+    takeOut.length > 0 ? `<div class="${prefix}-section-heading">TAKE OUT</div>` : '',
+    rows(takeOut),
+  ].join('')
 }
 
 function escHtml(s: string): string {
